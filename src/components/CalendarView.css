@@ -1,0 +1,426 @@
+.calendar-container {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+}
+
+.calendar-header {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.calendar-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.nav-button {
+  padding: 0.625rem 1.25rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-weight: 500;
+  font-size: 0.875rem;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.nav-button:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-color);
+}
+
+.nav-button .material-icons {
+  font-size: 20px;
+}
+
+.today-button {
+  padding: 0.625rem 1.25rem;
+  background: var(--accent-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-weight: 500;
+  font-size: 0.875rem;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.today-button:hover {
+  background: var(--accent-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.today-button .material-icons {
+  font-size: 20px;
+}
+
+.calendar-month {
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.month-stats {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.stat-box {
+  flex: 1;
+  min-width: 150px;
+  padding: 1.25rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  transition: all 0.2s ease;
+}
+
+.stat-box:hover {
+  border-color: var(--border-color);
+  background: var(--bg-tertiary);
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.stat-value.positive {
+  color: var(--accent-success);
+}
+
+.stat-value.negative {
+  color: var(--accent-danger);
+}
+
+.best-month-banner {
+  padding: 1rem 1.25rem;
+  background: rgba(0, 217, 165, 0.1);
+  border: 1px solid var(--accent-success);
+  border-radius: var(--radius-lg);
+  text-align: center;
+  font-weight: 500;
+  font-size: 0.9375rem;
+  color: var(--accent-success);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.best-month-banner .material-icons {
+  font-size: 20px;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.5rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-xl);
+  padding: 1.5rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.calendar-day-header {
+  text-align: center;
+  padding: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.calendar-day {
+  aspect-ratio: 1;
+  padding: 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  min-height: 100px;
+}
+
+.calendar-day:hover {
+  border-color: var(--accent-primary);
+  background: var(--bg-elevated);
+}
+
+.calendar-day.other-month {
+  opacity: 0.3;
+}
+
+.calendar-day.today {
+  border: 2px solid var(--accent-primary);
+  background: rgba(99, 91, 255, 0.1);
+}
+
+.calendar-day.selected {
+  border: 2px solid var(--accent-primary);
+  background: rgba(99, 91, 255, 0.15);
+  box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.1);
+}
+
+.calendar-day.has-trades {
+  background: var(--bg-secondary);
+  border-color: var(--accent-success);
+}
+
+.day-number {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--text-primary);
+  margin-bottom: 0.375rem;
+}
+
+.day-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+}
+
+.trade-count {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.day-pnl {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.day-pnl.positive {
+  color: var(--accent-success);
+}
+
+.day-pnl.negative {
+  color: var(--accent-danger);
+}
+
+.day-details {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-xl);
+  padding: 2rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.day-details-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.day-details-header h3 {
+  font-size: 1.5rem;
+  color: var(--text-primary);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.close-button {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.close-button .material-icons {
+  font-size: 20px;
+}
+
+.close-button:hover {
+  background: var(--accent-danger);
+  border-color: var(--accent-danger);
+  color: white;
+}
+
+.day-trades-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.day-trade-card {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+}
+
+.trade-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.trade-result {
+  font-weight: 600;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.trade-result.positive {
+  color: var(--accent-success);
+}
+
+.trade-result.negative {
+  color: var(--accent-danger);
+}
+
+.trade-pnl {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.trade-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.metric {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.metric-label {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 400;
+}
+
+.metric-value {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+}
+
+.metric-value.positive {
+  color: var(--accent-success);
+}
+
+.metric-value.negative {
+  color: var(--accent-danger);
+}
+
+.trade-notes {
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.no-trades-message {
+  text-align: center;
+  padding: 3rem 2rem;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.no-trades-message .material-icons {
+  font-size: 48px;
+  color: var(--text-tertiary);
+}
+
+.no-trades-message p {
+  font-size: 0.9375rem;
+  margin: 0;
+}
+
+@media (max-width: 768px) {
+  .calendar-grid {
+    gap: 0.375rem;
+    padding: 1rem;
+  }
+
+  .calendar-day {
+    min-height: 80px;
+    padding: 0.5rem;
+  }
+
+  .day-number {
+    font-size: 0.875rem;
+  }
+
+  .day-info {
+    font-size: 0.6875rem;
+  }
+
+  .trade-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .month-stats {
+    flex-direction: column;
+  }
+
+  .stat-box {
+    min-width: 100%;
+  }
+}
