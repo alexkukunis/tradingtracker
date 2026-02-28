@@ -1,426 +1,682 @@
+/* ════════════════════════════════════════════════════════════
+   Calendar — dark glass SaaS
+   ════════════════════════════════════════════════════════════ */
+
 .calendar-container {
   display: flex;
   flex-direction: column;
-  gap: 2.5rem;
+  gap: 2rem;
 }
 
-.calendar-header {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
+/* ── Navigation ──────────────────────────────────────────── */
 .calendar-nav {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
-  flex-wrap: wrap;
+}
+
+.calendar-month {
+  font-size: 1.375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.03em;
+  margin: 0;
+  min-width: 190px;
+  text-align: center;
 }
 
 .nav-actions {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 
 .nav-button {
-  padding: 0.625rem 1.25rem;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-weight: 500;
-  font-size: 0.875rem;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 0.375rem;
+  gap: 0.25rem;
+  padding: 0.4375rem 0.875rem;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .nav-button:hover {
-  background: var(--bg-elevated);
-  border-color: var(--border-color);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
 }
 
-.nav-button .material-icons {
-  font-size: 20px;
-}
+.nav-button .material-icons { font-size: 16px; }
 
 .today-button {
-  padding: 0.625rem 1.25rem;
-  background: var(--accent-primary);
-  border: none;
-  border-radius: var(--radius-md);
-  color: white;
-  font-weight: 500;
-  font-size: 0.875rem;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 0.375rem;
+  gap: 0.25rem;
+  padding: 0.4375rem 0.875rem;
+  background: rgba(99, 91, 255, 0.1);
+  border: 1px solid rgba(99, 91, 255, 0.25);
+  border-radius: 6px;
+  color: #a89fff;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .today-button:hover {
-  background: var(--accent-primary-hover);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
+  background: rgba(99, 91, 255, 0.18);
+  border-color: rgba(99, 91, 255, 0.4);
+  color: #fff;
 }
 
-.today-button .material-icons {
-  font-size: 20px;
-}
+.today-button .material-icons { font-size: 16px; }
 
-.calendar-month {
-  font-size: 1.75rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: -0.02em;
-}
-
+/* ── Month Stats ─────────────────────────────────────────── */
 .month-stats {
   display: flex;
-  gap: 1rem;
+  gap: 0.625rem;
   flex-wrap: wrap;
+  align-items: stretch;
 }
 
 .stat-box {
   flex: 1;
-  min-width: 150px;
-  padding: 1.25rem;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
+  min-width: 120px;
+  padding: 0.875rem 1.125rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  transition: all 0.2s ease;
+  gap: 0.3125rem;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .stat-box:hover {
-  border-color: var(--border-color);
-  background: var(--bg-tertiary);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .stat-label {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
+  font-size: 0.625rem;
+  color: var(--text-tertiary);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: 500;
+  letter-spacing: 0.08em;
+  font-weight: 600;
 }
 
 .stat-value {
-  font-size: 1.5rem;
-  font-weight: 600;
+  font-size: 1.25rem;
+  font-weight: 700;
   color: var(--text-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
+  line-height: 1;
 }
 
-.stat-value.positive {
-  color: var(--accent-success);
-}
-
-.stat-value.negative {
-  color: var(--accent-danger);
-}
+.stat-value.positive { color: var(--accent-success); }
+.stat-value.negative { color: var(--accent-danger); }
 
 .best-month-banner {
-  padding: 1rem 1.25rem;
-  background: rgba(0, 217, 165, 0.1);
-  border: 1px solid var(--accent-success);
-  border-radius: var(--radius-lg);
-  text-align: center;
-  font-weight: 500;
-  font-size: 0.9375rem;
-  color: var(--accent-success);
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
   gap: 0.5rem;
+  padding: 0.875rem 1.125rem;
+  background: rgba(0, 217, 165, 0.05);
+  border: 1px solid rgba(0, 217, 165, 0.15);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--accent-success);
+  white-space: nowrap;
 }
 
-.best-month-banner .material-icons {
-  font-size: 20px;
-}
+.best-month-banner .material-icons { font-size: 14px; opacity: 0.7; }
 
+/* ── Calendar Grid ───────────────────────────────────────── */
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 0.5rem;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-xl);
-  padding: 1.5rem;
-  box-shadow: var(--shadow-sm);
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .calendar-day-header {
+  background: rgba(255, 255, 255, 0.025);
   text-align: center;
-  padding: 0.75rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-  font-size: 0.8125rem;
+  padding: 0.5625rem 0.5rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: var(--text-tertiary);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
 }
 
+/* ── Day Cells ───────────────────────────────────────────── */
 .calendar-day {
-  aspect-ratio: 1;
-  padding: 0.75rem;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  padding: 0.625rem 0.75rem 0.75rem;
   display: flex;
   flex-direction: column;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  min-height: 100px;
+  transition: background 0.12s ease;
+  min-height: 88px;
+  position: relative;
 }
 
-.calendar-day:hover {
-  border-color: var(--accent-primary);
-  background: var(--bg-elevated);
+.calendar-day:hover { background: var(--bg-elevated); }
+
+.day-number {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  line-height: 1;
+  margin-bottom: 0.5rem;
 }
 
-.calendar-day.other-month {
-  opacity: 0.3;
-}
+.calendar-day.other-month { background: var(--bg-primary); }
+.calendar-day.other-month .day-number { color: var(--text-tertiary); opacity: 0.35; }
 
-.calendar-day.today {
-  border: 2px solid var(--accent-primary);
-  background: rgba(99, 91, 255, 0.1);
+.calendar-day.today .day-number {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-primary);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 700;
 }
 
 .calendar-day.selected {
-  border: 2px solid var(--accent-primary);
-  background: rgba(99, 91, 255, 0.15);
-  box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.1);
+  background: rgba(99, 91, 255, 0.07);
+  outline: 1px solid rgba(99, 91, 255, 0.28);
+  outline-offset: -1px;
 }
 
-.calendar-day.has-trades {
-  background: var(--bg-secondary);
-  border-color: var(--accent-success);
-}
+.calendar-day.has-trades.win-day        { background: rgba(0, 217, 165, 0.05); }
+.calendar-day.has-trades.win-day:hover  { background: rgba(0, 217, 165, 0.09); }
+.calendar-day.has-trades.loss-day       { background: rgba(255, 68, 68, 0.05); }
+.calendar-day.has-trades.loss-day:hover { background: rgba(255, 68, 68, 0.09); }
 
-.day-number {
-  font-weight: 600;
-  font-size: 1rem;
-  color: var(--text-primary);
-  margin-bottom: 0.375rem;
+.calendar-day.has-trades::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
 }
+.calendar-day.has-trades.win-day::before  { background: var(--accent-success); }
+.calendar-day.has-trades.loss-day::before { background: var(--accent-danger); }
 
 .day-info {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.375rem;
-  font-size: 0.75rem;
+  justify-content: flex-end;
+  gap: 0.15rem;
 }
 
 .trade-count {
-  color: var(--text-secondary);
+  font-size: 0.625rem;
+  color: var(--text-tertiary);
   font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 .day-pnl {
-  font-weight: 600;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
 }
 
-.day-pnl.positive {
-  color: var(--accent-success);
-}
+.day-pnl.positive { color: var(--accent-success); }
+.day-pnl.negative { color: var(--accent-danger); }
 
-.day-pnl.negative {
-  color: var(--accent-danger);
-}
-
+/* ════════════════════════════════════════════════════════════
+   Day Details Panel
+   ════════════════════════════════════════════════════════════ */
 .day-details {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-xl);
-  padding: 2rem;
-  box-shadow: var(--shadow-sm);
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  overflow: hidden;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .day-details-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1.5rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid var(--border-light);
+  align-items: flex-start;
+  padding: 1.125rem 1.375rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  gap: 1rem;
+}
+
+.day-details-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4375rem;
 }
 
 .day-details-header h3 {
-  font-size: 1.5rem;
-  color: var(--text-primary);
+  font-size: 0.9375rem;
   font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.day-summary-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.day-total-pnl-badge {
+  font-size: 0.875rem;
+  font-weight: 700;
   letter-spacing: -0.02em;
+  padding: 0.1875rem 0.5rem;
+  border-radius: 4px;
+}
+
+.day-total-pnl-badge.positive {
+  color: var(--accent-success);
+  background: rgba(0, 217, 165, 0.1);
+}
+
+.day-total-pnl-badge.negative {
+  color: var(--accent-danger);
+  background: rgba(255, 68, 68, 0.1);
+}
+
+.day-trade-count-badge {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  padding: 0.1875rem 0.5rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .close-button {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-light);
-  color: var(--text-secondary);
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-tertiary);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
   padding: 0;
+  margin-top: 1px;
 }
 
-.close-button .material-icons {
-  font-size: 20px;
-}
+.close-button .material-icons { font-size: 15px; }
 
 .close-button:hover {
-  background: var(--accent-danger);
-  border-color: var(--accent-danger);
-  color: white;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: var(--text-primary);
 }
 
 .day-trades-list {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  padding: 1rem 1.25rem 1.25rem;
+  gap: 0.625rem;
 }
 
-.day-trade-card {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  padding: 1.5rem;
+/* ════════════════════════════════════════════════════════════
+   Trade Card  (.dtc)
+   ════════════════════════════════════════════════════════════ */
+.dtc {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 6px;
+  overflow: hidden;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
-.trade-header {
+.dtc:hover {
+  background: rgba(255, 255, 255, 0.045);
+  border-color: rgba(255, 255, 255, 0.11);
+}
+
+/* coloured left bar via box-shadow so border-radius isn't disrupted */
+.dtc--win  { box-shadow: inset 3px 0 0 var(--accent-success); }
+.dtc--loss { box-shadow: inset 3px 0 0 var(--accent-danger); }
+
+/* ── Top row ── */
+.dtc__top {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid var(--border-light);
+  gap: 0.75rem;
+  padding: 0.875rem 1rem 0.875rem 1.125rem;
 }
 
-.trade-result {
+/* badges */
+.dtc__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.3125rem;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+
+/* PnL + result on the right */
+.dtc__pnl-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.3125rem;
+  flex-shrink: 0;
+}
+
+.dtc__pnl {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.dtc__pnl.positive { color: var(--accent-success); }
+.dtc__pnl.negative { color: var(--accent-danger); }
+
+/* ── Shared badge base ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.1875rem 0.4375rem;
+  border-radius: 4px;
+  font-size: 0.6875rem;
   font-weight: 600;
-  font-size: 1rem;
+  letter-spacing: 0.025em;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+/* instrument */
+.badge--instrument {
+  background: rgba(99, 91, 255, 0.12);
+  color: #b3acff;
+  border: 1px solid rgba(99, 91, 255, 0.2);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* side */
+.badge--side.badge--buy {
+  background: rgba(0, 217, 165, 0.09);
+  color: var(--accent-success);
+  border: 1px solid rgba(0, 217, 165, 0.18);
+}
+
+.badge--side.badge--sell {
+  background: rgba(255, 68, 68, 0.09);
+  color: #ff7878;
+  border: 1px solid rgba(255, 68, 68, 0.18);
+}
+
+/* muted (order type / volume) */
+.badge--muted {
+  background: transparent;
+  color: var(--text-tertiary);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* result */
+.badge--result {
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.badge--result .material-icons { font-size: 12px; }
+
+.badge--result.badge--win {
+  background: rgba(0, 217, 165, 0.08);
+  color: var(--accent-success);
+  border: 1px solid rgba(0, 217, 165, 0.15);
+}
+
+.badge--result.badge--loss {
+  background: rgba(255, 68, 68, 0.08);
+  color: #ff7878;
+  border: 1px solid rgba(255, 68, 68, 0.15);
+}
+
+.badge--result.badge--crushed {
+  background: rgba(0, 217, 165, 0.14);
+  border-color: rgba(0, 217, 165, 0.3);
+}
+
+/* R:R */
+.badge--rr {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  padding: 0.125rem 0.5rem;
+}
+
+.badge--rr-hit {
+  background: rgba(0, 217, 165, 0.1);
+  color: var(--accent-success);
+  border-color: rgba(0, 217, 165, 0.22);
+}
+
+/* ── Prices row ── */
+.dtc__prices {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.5625rem 1.125rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.trade-result.positive {
-  color: var(--accent-success);
-}
-
-.trade-result.negative {
-  color: var(--accent-danger);
-}
-
-.trade-pnl {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: -0.02em;
-}
-
-.trade-metrics {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.metric {
+.dtc__price-pair {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  align-items: baseline;
+  gap: 0.3125rem;
 }
 
-.metric-label {
-  color: var(--text-secondary);
-  font-size: 0.875rem;
-  font-weight: 400;
-}
-
-.metric-value {
-  font-weight: 600;
-  color: var(--text-primary);
-  font-size: 0.9375rem;
-}
-
-.metric-value.positive {
-  color: var(--accent-success);
-}
-
-.metric-value.negative {
-  color: var(--accent-danger);
-}
-
-.trade-notes {
-  padding-top: 1rem;
-  border-top: 1px solid var(--border-light);
-  color: var(--text-secondary);
-  font-size: 0.875rem;
-  line-height: 1.6;
-}
-
-.no-trades-message {
-  text-align: center;
-  padding: 3rem 2rem;
-  color: var(--text-secondary);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-}
-
-.no-trades-message .material-icons {
-  font-size: 48px;
+.dtc__price-label {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   color: var(--text-tertiary);
 }
 
-.no-trades-message p {
-  font-size: 0.9375rem;
+.dtc__price-val {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.dtc__price-val--sl { color: #ff7878; }
+.dtc__price-val--tp { color: var(--accent-success); }
+
+.dtc__price-arrow {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.dtc__price-sep {
+  color: rgba(255, 255, 255, 0.12);
+  font-size: 0.875rem;
+  flex-shrink: 0;
+}
+
+/* ── Stats footer ── */
+.dtc__stats {
+  display: flex;
+  align-items: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.dtc__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5625rem 1.125rem;
+  flex: 1;
+}
+
+.dtc__stat-divider {
+  width: 1px;
+  height: 28px;
+  background: rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
+.dtc__stat-label {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+}
+
+.dtc__stat-val {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.dtc__stat-val.positive { color: var(--accent-success); }
+.dtc__stat-val.negative { color: var(--accent-danger); }
+
+/* ── Notes ── */
+.dtc__notes {
+  padding: 0.6875rem 1.125rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.dtc__notes-label {
+  display: block;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  margin-bottom: 0.3125rem;
+}
+
+.dtc__notes p {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
   margin: 0;
 }
 
-@media (max-width: 768px) {
-  .calendar-grid {
-    gap: 0.375rem;
-    padding: 1rem;
-  }
+/* ── Empty State ─────────────────────────────────────────── */
+.no-trades-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 3rem 2rem;
+  color: var(--text-tertiary);
+}
+
+.no-trades-message .material-icons { font-size: 32px; opacity: 0.3; }
+
+.no-trades-message p {
+  font-size: 0.875rem;
+  margin: 0;
+  color: var(--text-tertiary);
+}
+
+/* ════════════════════════════════════════════════════════════
+   Responsive
+   ════════════════════════════════════════════════════════════ */
+
+@media (max-width: 900px) {
+  .best-month-banner { flex: 1 1 100%; }
+}
+
+@media (max-width: 640px) {
+  .calendar-month { font-size: 1rem; min-width: unset; }
+  .calendar-grid  { gap: 1px; }
 
   .calendar-day {
-    min-height: 80px;
-    padding: 0.5rem;
+    min-height: 60px;
+    padding: 0.4375rem 0.4375rem 0.5rem;
   }
 
-  .day-number {
-    font-size: 0.875rem;
+  .day-number    { font-size: 0.6875rem; margin-bottom: 0.375rem; }
+  .trade-count   { display: none; }
+  .day-pnl       { font-size: 0.6875rem; }
+
+  .month-stats   { gap: 0.5rem; }
+  .stat-box      { min-width: calc(50% - 0.375rem); }
+
+  .day-details-header { padding: 0.875rem 1.125rem; }
+  .day-trades-list    { padding: 0.75rem 0.875rem 1rem; gap: 0.5rem; }
+
+  .dtc__top {
+    flex-wrap: wrap;
+    padding: 0.75rem 0.875rem;
+    gap: 0.5rem;
   }
 
-  .day-info {
-    font-size: 0.6875rem;
+  .dtc__meta {
+    width: 100%;
+    flex: unset;
   }
 
-  .trade-metrics {
-    grid-template-columns: 1fr;
+  .dtc__pnl-block {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    justify-content: space-between;
   }
 
-  .month-stats {
-    flex-direction: column;
+  .dtc__pnl { font-size: 1.125rem; }
+
+  .dtc__prices {
+    gap: 0.375rem;
+    padding: 0.5rem 0.875rem;
   }
 
-  .stat-box {
-    min-width: 100%;
-  }
+  .dtc__stat     { padding: 0.5rem 0.875rem; }
+  .dtc__stat-val { font-size: 0.9375rem; }
 }

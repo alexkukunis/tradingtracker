@@ -20,13 +20,7 @@ function timeAgo(date) {
 function Settings({
   settings,
   onSave,
-  onSync,
-  simulationMode,
-  onSimulationModeChange,
-  simBalance,
-  onSimBalanceChange,
-  simWinRate,
-  onSimWinRateChange
+  onSync
 }) {
   const [formData, setFormData] = useState(settings)
   const [tradelockerStatus, setTradelockerStatus] = useState(null)
@@ -278,85 +272,6 @@ function Settings({
             Save Settings
           </button>
         </form>
-      </div>
-
-      {/* Simulation Mode */}
-      <div className={`settings-card sim-mode-card${simulationMode ? ' sim-active' : ''}`}>
-        <div className="sim-card-header">
-          <div className="sim-card-title-group">
-            <h2 className="settings-title">
-              <span className="material-icons">science</span>
-              Simulation Mode
-            </h2>
-            <p className="settings-subtitle">
-              Override live account data in Goals &amp; Projections with custom values for "what-if" scenarios
-            </p>
-          </div>
-          <div className="mode-toggle">
-            <button
-              className={`mode-toggle-btn${!simulationMode ? ' active' : ''}`}
-              onClick={() => onSimulationModeChange(false)}
-            >
-              <span className="material-icons">show_chart</span>
-              Real
-            </button>
-            <button
-              className={`mode-toggle-btn simulate${simulationMode ? ' active' : ''}`}
-              onClick={() => onSimulationModeChange(true)}
-            >
-              <span className="material-icons">science</span>
-              Simulate
-            </button>
-          </div>
-        </div>
-
-        {simulationMode ? (
-          <div className="sim-inputs-section">
-            <div className="sim-active-banner">
-              <span className="material-icons">info</span>
-              Simulation mode is <strong>ON</strong> — the Goals page will use the values below instead of your real account data.
-            </div>
-            <div className="sim-inputs-grid">
-              <div className="form-group">
-                <label htmlFor="sim-balance" className="form-label">
-                  Simulated Balance ($)
-                </label>
-                <input
-                  type="number"
-                  id="sim-balance"
-                  value={simBalance}
-                  onChange={(e) => onSimBalanceChange(parseFloat(e.target.value) || 0)}
-                  step="100"
-                  min="0"
-                  className="form-input"
-                />
-                <p className="form-hint">This balance will be used as the starting point for projections</p>
-              </div>
-              <div className="form-group">
-                <label htmlFor="sim-winrate" className="form-label">
-                  Simulated Win Rate (%)
-                </label>
-                <input
-                  type="number"
-                  id="sim-winrate"
-                  value={simWinRate}
-                  onChange={(e) => onSimWinRateChange(parseFloat(e.target.value) || 0)}
-                  step="0.1"
-                  min="0"
-                  max="100"
-                  className="form-input"
-                />
-                <p className="form-hint">This win rate will replace your historical win rate in projections</p>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="sim-off-state">
-            <span className="material-icons sim-off-icon">show_chart</span>
-            <p>Goals &amp; Projections are using your <strong>real live account data</strong>.</p>
-            <p className="sim-off-hint">Switch to Simulate to test different balance and win rate scenarios without affecting your real data.</p>
-          </div>
-        )}
       </div>
 
       {/* TradeLocker Integration */}

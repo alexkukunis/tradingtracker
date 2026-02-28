@@ -261,7 +261,7 @@ router.post('/sync', async (req, res) => {
     // Get a valid access token (refresh or re-auth as needed)
     const accessToken = await getValidAccessToken(account)
 
-    // Get account balance (non-fatal — returns zeros if endpoint unavailable)
+    // Get account balance for informational purposes only (returned in the response)
     const balanceData = await tradelockerService.getAccountBalance(
       accessToken,
       account.accountId,
@@ -274,35 +274,10 @@ router.post('/sync', async (req, res) => {
       where: { userId: req.userId }
     })
 
-    // Update starting balance from TradeLocker if we got a valid balance
-    // Use equity if available (includes unrealized PnL), otherwise use balance
-    if (balanceData.equity > 0 || balanceData.balance > 0) {
-      const newStartingBalance = balanceData.equity > 0 ? balanceData.equity : balanceData.balance
-      
-      // Only update if settings exist and balance is significantly different
-      if (settings) {
-        const balanceDiff = Math.abs(newStartingBalance - settings.startingBalance)
-        // Update if difference is more than $1 (to avoid tiny updates)
-        if (balanceDiff > 1) {
-          await prisma.settings.update({
-            where: { userId: req.userId },
-            data: { startingBalance: newStartingBalance }
-          })
-          console.log(`Updated starting balance from ${settings.startingBalance} to ${newStartingBalance}`)
-        }
-      } else {
-        // Create settings if they don't exist
-        await prisma.settings.create({
-          data: {
-            userId: req.userId,
-            startingBalance: newStartingBalance,
-            riskPercent: 2,
-            riskReward: 3
-          }
-        })
-        console.log(`Created settings with starting balance: ${newStartingBalance}`)
-      }
-    }
+    // NOTE: We intentionally do NOT overwrite the user's starting balance here.
+    // The starting balance is the user's initial capital, set manually in Settings.
+    // The live account balance/equity from TradeLocker reflects current value after
+    // all P&L and should never silently replace what the user typed.
 
     // ── Determine incremental sync window ──────────────────────────────────────
     // Run two lean DB queries in parallel:
@@ -328,13 +303,14 @@ router.post('/sync', async (req, res) => {
 
     // 'initial' mode: always fetch the full history (no startTime filter) so we
     // can slice the most-recent 100 positions below.
-    // 'refresh' mode: use the latest synced trade date minus a 1-day buffer so we
-    // only ask TradeLocker for trades we haven't seen yet.
+    // 'refresh' mode: use the exact timestamp of the latest synced trade so we
+    // only ask TradeLocker for trades on or after that point.
+    // No backward buffer — the existingTradeLockerIds deduplication set already
+    // prevents re-importing any trade that overlaps with the boundary date.
     let syncStartTime = null
     if (mode === 'refresh' && latestSyncedTrade?.date) {
-      const ONE_DAY_MS = 24 * 60 * 60 * 1000
-      syncStartTime = String(new Date(latestSyncedTrade.date).getTime() - ONE_DAY_MS)
-      console.log(`[refresh] Incremental sync from: ${new Date(Number(syncStartTime)).toISOString()} (latest trade date − 1 day)`)
+      syncStartTime = String(new Date(latestSyncedTrade.date).getTime())
+      console.log(`[refresh] Incremental sync from: ${new Date(Number(syncStartTime)).toISOString()} (latest synced trade date)`)
     } else if (mode === 'initial') {
       console.log('[initial] Fetching full history — will keep the 100 most recent closed positions')
     } else {
@@ -384,10 +360,24 @@ router.post('/sync', async (req, res) => {
     // Bracket orders (SL/TP stop/limit) are filtered out automatically.
     // Pass instrumentMap + fxRates + instrumentFullMap so the correct multiplier is applied:
     //   NAS100 → ×1 | XAUUSD → ×100 | DE40.PRO → ×100×EURUSD | EURAUD → ×100000×AUDUSD
-    const closedPositions = tradelockerService.groupPositionOrders(rawOrders, earlyInstrumentMap, fxRates, earlyInstrumentFull)
+    const allClosedPositions = tradelockerService.groupPositionOrders(rawOrders, earlyInstrumentMap, fxRates, earlyInstrumentFull)
+
+    // For 'refresh' mode: enforce the startTime boundary in code as a safety net.
+    // TradeLocker's API may ignore the startTime query param and return full history.
+    // Without this filter, a refresh sync would import ALL old trades (pre-dating
+    // the initial 100) because shouldCap is false for subsequent syncs.
+    let closedPositions = allClosedPositions
+    if (mode === 'refresh' && syncStartTime !== null) {
+      const syncStartMs = Number(syncStartTime)
+      closedPositions = allClosedPositions.filter(pos => {
+        const closeMs = Number(pos.closeTime || pos.exitTime || 0)
+        return closeMs >= syncStartMs
+      })
+      console.log(`[refresh] Client-side time filter: ${closedPositions.length} positions >= ${new Date(syncStartMs).toISOString()} (${allClosedPositions.length} total returned by API)`)
+    }
 
     console.log(`\n${'='.repeat(80)}`)
-    console.log(`TradeLocker: ${rawOrders.length} raw orders → ${closedPositions.length} closed positions`)
+    console.log(`TradeLocker: ${rawOrders.length} raw orders → ${allClosedPositions.length} closed positions → ${closedPositions.length} in sync window`)
     console.log(`${'='.repeat(80)}\n`)
 
     if (closedPositions.length > 0) {
@@ -410,7 +400,8 @@ router.post('/sync', async (req, res) => {
     // Cap at 100 most-recent positions when:
     //   • mode is explicitly 'initial', OR
     //   • this is the very first sync (no trades in DB yet)
-    // Subsequent refreshes (trades already in DB) get all new ones.
+    // Subsequent refreshes (trades already in DB) get all new ones — but only
+    // within the sync window enforced by the client-side filter above.
     const INITIAL_LIMIT = 100
     const isFirstSync = existingTradeLockerIds.size === 0
     const shouldCap = mode === 'initial' || isFirstSync
@@ -419,7 +410,7 @@ router.post('/sync', async (req, res) => {
       : closedPositions
 
     if (shouldCap) {
-      console.log(`[${isFirstSync ? 'first-sync' : 'initial'}] Capped to ${sortedPositions.length} most-recent positions out of ${closedPositions.length} total`)
+      console.log(`[${isFirstSync ? 'first-sync' : 'initial'}] Capped to ${sortedPositions.length} most-recent positions out of ${closedPositions.length} in window`)
     }
 
     // Collect unique instrument IDs from grouped positions
