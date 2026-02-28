@@ -38,6 +38,11 @@ router.put('/', async (req, res) => {
   try {
     const { startingBalance, riskPercent, riskReward } = req.body
 
+    // Ensure values are numbers (handle string inputs from form)
+    const parsedStartingBalance = parseFloat(startingBalance) || 0
+    const parsedRiskPercent = parseFloat(riskPercent) || 0
+    const parsedRiskReward = parseFloat(riskReward) || 0
+
     let settings = await prisma.settings.findUnique({
       where: { userId: req.userId }
     })
@@ -47,9 +52,9 @@ router.put('/', async (req, res) => {
       settings = await prisma.settings.update({
         where: { userId: req.userId },
         data: {
-          startingBalance,
-          riskPercent,
-          riskReward
+          startingBalance: parsedStartingBalance,
+          riskPercent: parsedRiskPercent,
+          riskReward: parsedRiskReward
         }
       })
     } else {
@@ -57,9 +62,9 @@ router.put('/', async (req, res) => {
       settings = await prisma.settings.create({
         data: {
           userId: req.userId,
-          startingBalance: startingBalance || 1000,
-          riskPercent: riskPercent || 2,
-          riskReward: riskReward || 3
+          startingBalance: parsedStartingBalance || 1000,
+          riskPercent: parsedRiskPercent || 2,
+          riskReward: parsedRiskReward || 3
         }
       })
     }

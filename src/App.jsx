@@ -14,6 +14,11 @@ import { recalculateBalances } from './utils/calculations'
 import { authAPI, tradesAPI, settingsAPI, getToken } from './services/api'
 import './App.css'
 
+// Defined OUTSIDE App so React never sees it as a new component type on re-render
+function ProtectedRoute({ user, children }) {
+  return user ? children : <Navigate to="/login" replace />
+}
+
 function App() {
   const [user, setUser] = useState(null)
   const [settings, setSettings] = useState({
@@ -26,6 +31,11 @@ function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isMobileExpanded, setIsMobileExpanded] = useState(false)
   const [loading, setLoading] = useState(true)
+
+  // Simulation mode — lets users override live account data for goal projections
+  const [simulationMode, setSimulationMode] = useState(false)
+  const [simBalance, setSimBalance] = useState(10000)
+  const [simWinRate, setSimWinRate] = useState(55)
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -162,14 +172,6 @@ function App() {
     }
   }
 
-  // Protected Route Component
-  const ProtectedRoute = ({ children }) => {
-    if (loading) {
-      return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Loading...</div>
-    }
-    return user ? children : <Navigate to="/login" replace />
-  }
-
   if (loading) {
     return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Loading...</div>
   }
@@ -181,7 +183,7 @@ function App() {
       <Route
         path="/*"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute user={user}>
             <div className={`app ${isMobileExpanded ? 'sidebar-expanded' : ''}`}>
               <Sidebar 
                 activeTab={activeTab} 
@@ -237,7 +239,18 @@ function App() {
                   />
                   <Route
                     path="/goals"
-                    element={<Goals trades={recalculatedTrades} settings={settings} />}
+                    element={
+                      <Goals
+                        trades={recalculatedTrades}
+                        settings={settings}
+                        simulationMode={simulationMode}
+                        onSimulationModeChange={setSimulationMode}
+                        simBalance={simBalance}
+                        onSimBalanceChange={setSimBalance}
+                        simWinRate={simWinRate}
+                        onSimWinRateChange={setSimWinRate}
+                      />
+                    }
                   />
                   <Route
                     path="/settings"
@@ -246,6 +259,12 @@ function App() {
                         settings={settings}
                         onSave={saveSettings}
                         onSync={loadUserData}
+                        simulationMode={simulationMode}
+                        onSimulationModeChange={setSimulationMode}
+                        simBalance={simBalance}
+                        onSimBalanceChange={setSimBalance}
+                        simWinRate={simWinRate}
+                        onSimWinRateChange={setSimWinRate}
                       />
                     }
                   />

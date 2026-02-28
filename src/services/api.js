@@ -161,9 +161,12 @@ export const tradelockerAPI = {
     })
   },
 
-  sync: async () => {
+  // mode: 'initial' → fetch full history, keep last 100 trades (first-time setup)
+  //       'refresh' → incremental: only trades newer than last sync (default)
+  sync: async (mode = 'refresh') => {
     return apiRequest('/api/tradelocker/sync', {
-      method: 'POST'
+      method: 'POST',
+      body: JSON.stringify({ mode })
     })
   }
 }

@@ -390,8 +390,8 @@ export async function getClosedPositions(accessToken, accountId, accNum, environ
  * @param {Object} fxRates   - Live FX rates: { EURUSD, GBPUSD, ... } (default 1.0)
  * @returns {number} The multiplier to apply to (priceDiff × qty)
  */
-export function getContractMultiplier(symbol, fxRates = {}, instrumentType = '') {
-  if (!symbol) return 1
+export function getContractMultiplier(symbol, fxRates = {}, instrumentType = '', contractSize = 1) {
+  if (!symbol) return contractSize || 1
   const s = symbol.toUpperCase().replace(/[.\s_]/g, '') // normalise
 
   // ── Precious metals (100 oz per standard lot, USD-denominated) ─────────────
@@ -438,8 +438,27 @@ export function getContractMultiplier(symbol, fxRates = {}, instrumentType = '')
     return 100000 * convRate
   }
 
-  // ── All other instruments (US indices NAS100/US30/US500, Crypto…) ──────────
-  // contractSize = 1 (USD per point per lot)
+  // ── Crypto / other instruments ───────────────────────────────────────────
+  // Prefer the broker's contractSize from the instruments API.
+  // When the API returns 1 (or nothing) for a crypto we can verify empirically,
+  // fall back to a known-values table.
+  // NOTE: these are verified against HEROFX live account Feb 2026.
+  //       Once the diagnostic log (see getAllInstrumentsFull) shows the raw
+  //       instrument field names, this can be replaced by the API value.
+  if (contractSize && contractSize !== 1) return contractSize
+
+  // ── Empirically verified contract sizes (symbol → contractSize) ──────────
+  // Math check: priceDiff × qty × contractSize = gross P&L (from TradeLocker UI)
+  const KNOWN_CONTRACT_SIZES = {
+    // Crypto CFDs at HEROFX
+    'BCHUSD': 10,   // verified: diff≈1.59 × 0.08 × 10 = $1.27 ✓
+    // Add more here once the diagnostic log shows the field name so we can
+    // switch back to reading it directly from the API.
+  }
+
+  const knownSize = KNOWN_CONTRACT_SIZES[symbol.toUpperCase()]
+  if (knownSize) return knownSize
+
   return 1
 }
 
@@ -601,13 +620,32 @@ export async function getAllInstrumentsFull(accessToken, accountId, accNum, envi
       const instruments = data.d?.instruments || data.d || data.instruments || []
 
       if (Array.isArray(instruments)) {
+        // Log the first instrument's raw structure once so we can see all available fields
+        if (instruments.length > 0) {
+          const sample = instruments[0]
+          console.log('[instruments] Sample instrument keys:', Object.keys(sample))
+          console.log('[instruments] Sample instrument data:', JSON.stringify(sample))
+        }
         for (const instrument of instruments) {
           const instId = String(instrument.tradableInstrumentId || instrument.id || instrument.instrumentId || '')
           const symbol = instrument.symbol || instrument.name || instrument.instrumentName || null
           const type   = instrument.type || instrument.instrumentType || ''
+          // TradeLocker exposes the broker's contract size as contractSize or lotSize.
+          // Crypto instruments can have non-1 values (e.g. BCHUSD=10, DOGEUSD=1000).
+          const contractSize = parseFloat(
+            instrument.contractSize ?? instrument.lotSize ?? instrument.contractSizeValue ?? 1
+          ) || 1
 
           if (instId && symbol) {
-            instrumentMap.set(instId, { symbol, type })
+            instrumentMap.set(instId, { symbol, type, contractSize })
+          }
+        }
+        // Also log the BCHUSD instrument specifically if present
+        for (const [id, info] of instrumentMap) {
+          if (info.symbol === 'BCHUSD' || info.symbol === 'BTCUSD' || info.symbol === 'DOGEUSD') {
+            // Find the raw instrument to log all its fields
+            const raw = instruments.find(i => String(i.tradableInstrumentId || i.id || i.instrumentId || '') === id)
+            if (raw) console.log(`[instruments] ${info.symbol} (id=${id}) raw:`, JSON.stringify(raw))
           }
         }
       }
@@ -969,7 +1007,9 @@ export function groupPositionOrders(orders, instrumentMap = new Map(), fxRates =
     const exitTimeMs  = get(closeOrder, 13)                             // createdDate ms of close fill
     const instId      = String(get(openOrder, 1) || '')                 // tradableInstrumentId
     const symbol      = instrumentMap.get(instId) || ''                 // e.g. "DE40.PRO"
-    const instType    = instrumentFullMap.get(instId)?.type || ''       // e.g. "FOREX", "EQUITY_CFD"
+    const instFull    = instrumentFullMap.get(instId) || {}
+    const instType    = instFull.type || ''                              // e.g. "FOREX", "EQUITY_CFD"
+    const contractSize = instFull.contractSize || 1                     // broker's lot size, e.g. BCHUSD=10
 
     // Primary source: [17] stopLoss and [19] takeProfit on the opening order
     let stopLoss   = parseFloat(get(openOrder, 17) || 0) || null   // [17] = stopLoss
@@ -1004,22 +1044,27 @@ export function groupPositionOrders(orders, instrumentMap = new Map(), fxRates =
       if (bracketType === 'limit' && takeProfit === null) takeProfit = bracketPrice
     }
 
-    // Calculate gross P&L.
-    // ordersHistory has no realized P&L field — we derive it from price difference.
-    // The correct formula is: priceDiff × qty × contractMultiplier
-    // where the multiplier accounts for contractSize and currency conversion.
-    // e.g.  NAS100 → ×1   |  XAUUSD → ×100   |  DE40.PRO → ×100 × EUR/USD
+    // ── Gross P&L ──────────────────────────────────────────────────────────────
+    // Priority 1: field [10] on the closing order — TradeLocker stores the
+    // broker's own realized P&L there. This is the most accurate source and
+    // handles crypto instruments (BCHUSD, DOGEUSD, etc.) with non-standard
+    // contract sizes that aren't exposed via the instruments API.
+    //
+    // Priority 2: price-diff × qty × contractMultiplier (fallback when field
+    // [10] is 0 or absent, e.g. for some market-order fills).
+    const apiPnl = parseFloat(get(closeOrder, 10) ?? 0) || 0
     let grossPnl = 0
-    if (entryPrice > 0 && exitPrice > 0 && qty > 0) {
+
+    if (apiPnl !== 0) {
+      grossPnl = apiPnl
+      console.log(`  P&L from API[10]: ${symbol} | grossPnl=${grossPnl.toFixed(2)}`)
+    } else if (entryPrice > 0 && exitPrice > 0 && qty > 0) {
       const priceDiff = side === 'sell'
         ? (entryPrice - exitPrice)
         : (exitPrice - entryPrice)
-      const multiplier = getContractMultiplier(symbol, fxRates, instType)
+      const multiplier = getContractMultiplier(symbol, fxRates, instType, contractSize)
       grossPnl = priceDiff * qty * multiplier
-      // Log only when a non-trivial multiplier is applied (helps trace P&L issues)
-      if (symbol && multiplier !== 1) {
-        console.log(`  P&L calc: ${symbol} (${instType||'?'}) | diff=${priceDiff.toFixed(4)} × qty=${qty} × mult=${multiplier.toFixed(4)} = $${grossPnl.toFixed(2)}`)
-      }
+      console.log(`  P&L calc (fallback): ${symbol} (${instType||'?'}) | diff=${priceDiff.toFixed(4)} × qty=${qty} × contractSize=${contractSize} × mult=${multiplier.toFixed(4)} = $${grossPnl.toFixed(2)}`)
     }
 
     // The "Order ID" shown in the TradeLocker UI corresponds to the closing order ID

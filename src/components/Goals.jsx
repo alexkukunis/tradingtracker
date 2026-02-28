@@ -1,15 +1,38 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { format, startOfMonth, endOfMonth, addMonths, eachMonthOfInterval } from 'date-fns'
 import { formatCurrency, parseDateLocal } from '../utils/calculations'
 import './Goals.css'
 
-function Goals({ trades, settings }) {
-  const [riskPercent, setRiskPercent] = useState(settings.riskPercent || 2)
-  const [riskReward, setRiskReward] = useState(settings.riskReward || 3)
-  const [tradesPerMonth, setTradesPerMonth] = useState(20)
-  const [projectionMonths, setProjectionMonths] = useState(6)
+function Goals({
+  trades,
+  settings,
+  simulationMode,
+  onSimulationModeChange,
+  simBalance,
+  onSimBalanceChange,
+  simWinRate,
+  onSimWinRateChange
+}) {
+  // Use string state for all inputs so browser min/max constraints don't reset
+  // values mid-typing (e.g. typing "700" when max=100 would return "" and reset)
+  const [riskPercentInput, setRiskPercentInput] = useState(String(settings.riskPercent || 2))
+  const [riskRewardInput, setRiskRewardInput] = useState(String(settings.riskReward || 3))
+  const [tradesPerMonthInput, setTradesPerMonthInput] = useState('20')
+  const [projectionMonthsInput, setProjectionMonthsInput] = useState('6')
+  const [simBalanceInput, setSimBalanceInput] = useState(String(simBalance))
+  const [simWinRateInput, setSimWinRateInput] = useState(String(simWinRate))
 
-  // Calculate win rate and stats from trade history
+  // Parsed numeric values used only for computation — never written back to inputs
+  const riskPercent = parseFloat(riskPercentInput) || 0
+  const riskReward = parseFloat(riskRewardInput) || 0
+  const tradesPerMonth = parseInt(tradesPerMonthInput) || 0
+  const projectionMonths = parseInt(projectionMonthsInput) || 0
+
+  // Keep sim inputs in sync only when the Settings page changes the values externally
+  useEffect(() => { setSimBalanceInput(String(simBalance)) }, [simBalance])
+  useEffect(() => { setSimWinRateInput(String(simWinRate)) }, [simWinRate])
+
+  // Calculate win rate and stats from real trade history
   const tradeStats = useMemo(() => {
     if (trades.length === 0) {
       return {
@@ -32,8 +55,8 @@ function Goals({ trades, settings }) {
     const wins = sortedTrades.filter(t => t.pnl > 0)
     const losses = sortedTrades.filter(t => t.pnl < 0)
     const winRate = sortedTrades.length > 0 ? (wins.length / sortedTrades.length) * 100 : 50
-    const currentBalance = sortedTrades.length > 0 
-      ? sortedTrades[sortedTrades.length - 1].closeBalance 
+    const currentBalance = sortedTrades.length > 0
+      ? sortedTrades[sortedTrades.length - 1].closeBalance
       : settings.startingBalance
 
     const avgWin = wins.length > 0 ? wins.reduce((sum, t) => sum + t.pnl, 0) / wins.length : 0
@@ -50,18 +73,21 @@ function Goals({ trades, settings }) {
     }
   }, [trades, settings])
 
+  // Effective stats: real or simulated depending on mode
+  const effectiveBalance = simulationMode ? (parseFloat(simBalance) || 0) : tradeStats.currentBalance
+  const effectiveWinRate = simulationMode ? (parseFloat(simWinRate) || 0) : tradeStats.winRate
+
   // Calculate compounding projections
   const projections = useMemo(() => {
-    const startBalance = tradeStats.currentBalance
-    const winRateDecimal = tradeStats.winRate / 100
+    const startBalance = effectiveBalance
+    const winRateDecimal = effectiveWinRate / 100
     const riskDecimal = riskPercent / 100
 
     const results = []
     let currentBalance = startBalance
     const today = new Date()
     const currentMonthStart = startOfMonth(today)
-    
-    // Get all months from current month to projection months ahead
+
     const months = eachMonthOfInterval({
       start: currentMonthStart,
       end: addMonths(currentMonthStart, projectionMonths)
@@ -71,31 +97,19 @@ function Goals({ trades, settings }) {
       const monthStart = startOfMonth(month)
       const monthEnd = endOfMonth(month)
       const isCurrentMonth = index === 0
-      
-      // Calculate trades for this month
-      const tradesThisMonth = isCurrentMonth 
+
+      const tradesThisMonth = isCurrentMonth
         ? tradesPerMonth * (today.getDate() / new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate())
         : tradesPerMonth
 
-      // Simulate compounding for this month
       let monthBalance = currentBalance
       let monthPnL = 0
-      const monthlyTrades = []
 
       for (let i = 0; i < Math.floor(tradesThisMonth); i++) {
-        // Calculate expected value per trade based on current balance
-        // Expected value = (winRate * risk * riskReward) - ((1 - winRate) * risk)
-        // Where risk = balance * riskPercent/100
-        // Simplified: balance * riskPercent/100 * (winRate * (riskReward + 1) - 1)
         const expectedValuePerTrade = monthBalance * riskDecimal * (winRateDecimal * (riskReward + 1) - 1)
-        
         const tradePnL = expectedValuePerTrade
         monthBalance += tradePnL
         monthPnL += tradePnL
-        monthlyTrades.push({
-          balance: Math.round(monthBalance * 100) / 100,
-          pnl: Math.round(tradePnL * 100) / 100
-        })
       }
 
       const monthStartBalance = currentBalance
@@ -105,8 +119,8 @@ function Goals({ trades, settings }) {
 
       results.push({
         month: format(month, 'MMM yyyy'),
-        monthStart: monthStart,
-        monthEnd: monthEnd,
+        monthStart,
+        monthEnd,
         isCurrentMonth,
         startBalance: Math.round(monthStartBalance * 100) / 100,
         endBalance: monthEndBalance,
@@ -119,7 +133,7 @@ function Goals({ trades, settings }) {
     })
 
     return results
-  }, [tradeStats, riskPercent, riskReward, tradesPerMonth, projectionMonths, trades])
+  }, [effectiveBalance, effectiveWinRate, riskPercent, riskReward, tradesPerMonth, projectionMonths])
 
   const totalProjection = useMemo(() => {
     if (projections.length === 0) return null
@@ -129,8 +143,8 @@ function Goals({ trades, settings }) {
       startBalance: first.startBalance,
       endBalance: last.endBalance,
       totalReturn: last.endBalance - first.startBalance,
-      totalReturnPercent: first.startBalance > 0 
-        ? ((last.endBalance - first.startBalance) / first.startBalance) * 100 
+      totalReturnPercent: first.startBalance > 0
+        ? ((last.endBalance - first.startBalance) / first.startBalance) * 100
         : 0
     }
   }, [projections])
@@ -145,71 +159,184 @@ function Goals({ trades, settings }) {
           </h1>
           <p className="goals-subtitle">Compound your trading performance with realistic projections</p>
         </div>
+
+        {/* Real / Simulate mode toggle */}
+        <div className="mode-toggle-wrapper">
+          <div className="mode-toggle">
+            <button
+              type="button"
+              className={`mode-toggle-btn${!simulationMode ? ' active' : ''}`}
+              onClick={() => onSimulationModeChange(false)}
+            >
+              <span className="material-icons">show_chart</span>
+              Real
+            </button>
+            <button
+              type="button"
+              className={`mode-toggle-btn simulate${simulationMode ? ' active' : ''}`}
+              onClick={() => onSimulationModeChange(true)}
+            >
+              <span className="material-icons">science</span>
+              Simulate
+            </button>
+          </div>
+          {simulationMode && (
+            <span className="sim-badge">
+              <span className="material-icons">science</span>
+              Simulation Mode
+            </span>
+          )}
+        </div>
       </div>
+
+      {/* Simulation Overrides — only visible in Simulate mode */}
+      {simulationMode && (
+        <div className="sim-overrides-card">
+          <div className="sim-overrides-header">
+            <span className="material-icons">tune</span>
+            <div>
+              <h3>Simulation Parameters</h3>
+              <p>Override real account data with custom values for "what-if" projections</p>
+            </div>
+          </div>
+          <div className="sim-overrides-grid">
+            <div className="sim-override-item">
+              <label htmlFor="simBalance">
+                <span className="material-icons">account_balance_wallet</span>
+                Starting Balance ($)
+              </label>
+              <div className="config-input-wrapper">
+                <span className="config-prefix">$</span>
+                <input
+                  id="simBalance"
+                  type="number"
+                  step="100"
+                  value={simBalanceInput}
+                  onChange={(e) => {
+                    setSimBalanceInput(e.target.value)
+                    const parsed = parseFloat(e.target.value)
+                    if (!isNaN(parsed)) onSimBalanceChange(parsed)
+                  }}
+                  className="config-input with-prefix"
+                />
+              </div>
+              <p className="config-hint">Custom balance instead of your real account balance</p>
+            </div>
+
+            <div className="sim-override-item">
+              <label htmlFor="simWinRate">
+                <span className="material-icons">percent</span>
+                Win Rate (%)
+              </label>
+              <div className="config-input-wrapper">
+                <input
+                  id="simWinRate"
+                  type="number"
+                  step="0.1"
+                  value={simWinRateInput}
+                  onChange={(e) => {
+                    setSimWinRateInput(e.target.value)
+                    const parsed = parseFloat(e.target.value)
+                    if (!isNaN(parsed)) onSimWinRateChange(parsed)
+                  }}
+                  className="config-input"
+                />
+                <span className="config-unit">%</span>
+              </div>
+              <p className="config-hint">Custom win rate instead of your historical win rate</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Current Stats */}
       <div className="goals-stats-section">
-        <h2 className="section-title">Your Trading Performance</h2>
+        <h2 className="section-title">
+          {simulationMode ? 'Simulation Parameters' : 'Your Trading Performance'}
+        </h2>
         <div className="stats-grid">
-          <div className="stat-card">
+          <div className={`stat-card${simulationMode ? ' simulated' : ''}`}>
             <div className="stat-card-header">
               <span className="stat-icon">
                 <span className="material-icons">account_balance_wallet</span>
               </span>
-              <span className="stat-label">Current Balance</span>
+              <span className="stat-label">
+                {simulationMode ? 'Simulated Balance' : 'Current Balance'}
+              </span>
+              {simulationMode && <span className="stat-sim-badge">SIM</span>}
             </div>
-            <div className="stat-value-large">{formatCurrency(tradeStats.currentBalance)}</div>
+            <div className="stat-value-large">{formatCurrency(effectiveBalance)}</div>
+            {simulationMode && (
+              <div className="stat-real-value">
+                Real: {formatCurrency(tradeStats.currentBalance)}
+              </div>
+            )}
           </div>
 
-          <div className="stat-card">
+          <div className={`stat-card${simulationMode ? ' simulated' : ''}`}>
             <div className="stat-card-header">
               <span className="stat-icon">
                 <span className="material-icons">percent</span>
               </span>
-              <span className="stat-label">Win Rate</span>
+              <span className="stat-label">
+                {simulationMode ? 'Simulated Win Rate' : 'Win Rate'}
+              </span>
+              {simulationMode && <span className="stat-sim-badge">SIM</span>}
             </div>
-            <div className="stat-value">{tradeStats.winRate.toFixed(1)}%</div>
-            <div className="stat-meta">
-              {tradeStats.wins}W / {tradeStats.losses}L
-            </div>
+            <div className="stat-value">{effectiveWinRate.toFixed(1)}%</div>
+            {!simulationMode && (
+              <div className="stat-meta">
+                {tradeStats.wins}W / {tradeStats.losses}L
+              </div>
+            )}
+            {simulationMode && (
+              <div className="stat-real-value">
+                Real: {tradeStats.winRate.toFixed(1)}% ({tradeStats.wins}W / {tradeStats.losses}L)
+              </div>
+            )}
           </div>
 
-          <div className="stat-card">
-            <div className="stat-card-header">
-              <span className="stat-icon">
-                <span className="material-icons">bar_chart</span>
-              </span>
-              <span className="stat-label">Total Trades</span>
-            </div>
-            <div className="stat-value">{tradeStats.totalTrades}</div>
-          </div>
+          {!simulationMode && (
+            <>
+              <div className="stat-card">
+                <div className="stat-card-header">
+                  <span className="stat-icon">
+                    <span className="material-icons">bar_chart</span>
+                  </span>
+                  <span className="stat-label">Total Trades</span>
+                </div>
+                <div className="stat-value">{tradeStats.totalTrades}</div>
+              </div>
 
-          <div className="stat-card">
-            <div className="stat-card-header">
-              <span className="stat-icon">
-                <span className="material-icons">arrow_upward</span>
-              </span>
-              <span className="stat-label">Avg Win</span>
-            </div>
-            <div className="stat-value positive">{formatCurrency(tradeStats.avgWin)}</div>
-          </div>
+              <div className="stat-card">
+                <div className="stat-card-header">
+                  <span className="stat-icon">
+                    <span className="material-icons">arrow_upward</span>
+                  </span>
+                  <span className="stat-label">Avg Win</span>
+                </div>
+                <div className="stat-value positive">{formatCurrency(tradeStats.avgWin)}</div>
+              </div>
 
-          <div className="stat-card">
-            <div className="stat-card-header">
-              <span className="stat-icon">
-                <span className="material-icons">arrow_downward</span>
-              </span>
-              <span className="stat-label">Avg Loss</span>
-            </div>
-            <div className="stat-value negative">{formatCurrency(tradeStats.avgLoss)}</div>
-          </div>
+              <div className="stat-card">
+                <div className="stat-card-header">
+                  <span className="stat-icon">
+                    <span className="material-icons">arrow_downward</span>
+                  </span>
+                  <span className="stat-label">Avg Loss</span>
+                </div>
+                <div className="stat-value negative">{formatCurrency(tradeStats.avgLoss)}</div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
       {/* Configuration */}
       <div className="goals-config-section">
         <h2 className="section-title">Configure Your Trading Parameters</h2>
-        <div className="config-grid">
+        <form onSubmit={(e) => e.preventDefault()} noValidate>
+          <div className="config-grid">
           <div className="config-item">
             <label htmlFor="riskPercent">
               <span className="material-icons">warning</span>
@@ -219,11 +346,9 @@ function Goals({ trades, settings }) {
               <input
                 id="riskPercent"
                 type="number"
-                min="0.1"
-                max="10"
                 step="0.1"
-                value={riskPercent}
-                onChange={(e) => setRiskPercent(parseFloat(e.target.value) || 2)}
+                value={riskPercentInput}
+                onChange={(e) => setRiskPercentInput(e.target.value)}
                 className="config-input"
               />
               <span className="config-unit">%</span>
@@ -240,11 +365,9 @@ function Goals({ trades, settings }) {
               <input
                 id="riskReward"
                 type="number"
-                min="0.5"
-                max="10"
                 step="0.1"
-                value={riskReward}
-                onChange={(e) => setRiskReward(parseFloat(e.target.value) || 3)}
+                value={riskRewardInput}
+                onChange={(e) => setRiskRewardInput(e.target.value)}
                 className="config-input"
               />
               <span className="config-unit">:1</span>
@@ -261,11 +384,9 @@ function Goals({ trades, settings }) {
               <input
                 id="tradesPerMonth"
                 type="number"
-                min="1"
-                max="100"
                 step="1"
-                value={tradesPerMonth}
-                onChange={(e) => setTradesPerMonth(parseInt(e.target.value) || 20)}
+                value={tradesPerMonthInput}
+                onChange={(e) => setTradesPerMonthInput(e.target.value)}
                 className="config-input"
               />
             </div>
@@ -281,11 +402,9 @@ function Goals({ trades, settings }) {
               <input
                 id="projectionMonths"
                 type="number"
-                min="1"
-                max="24"
                 step="1"
-                value={projectionMonths}
-                onChange={(e) => setProjectionMonths(parseInt(e.target.value) || 6)}
+                value={projectionMonthsInput}
+                onChange={(e) => setProjectionMonthsInput(e.target.value)}
                 className="config-input"
               />
               <span className="config-unit">months</span>
@@ -293,13 +412,17 @@ function Goals({ trades, settings }) {
             <p className="config-hint">Number of months to project ahead</p>
           </div>
         </div>
+        </form>
       </div>
 
       {/* Projections Summary */}
       {totalProjection && (
         <div className="projection-summary">
           <div className="summary-card primary">
-            <div className="summary-label">Projected Balance</div>
+            <div className="summary-label">
+              Projected Balance
+              {simulationMode && <span className="summary-sim-tag">Simulated</span>}
+            </div>
             <div className="summary-value-large">{formatCurrency(totalProjection.endBalance)}</div>
             <div className="summary-change">
               <span className={totalProjection.totalReturnPercent >= 0 ? 'positive' : 'negative'}>
@@ -376,13 +499,20 @@ function Goals({ trades, settings }) {
         <div className="info-content">
           <h3>How Projections Work</h3>
           <p>
-            Projections are calculated using your historical win rate ({tradeStats.winRate.toFixed(1)}%) 
-            and the configured risk parameters. Each trade assumes you risk {riskPercent}% of your balance 
-            with a {riskReward}:1 risk:reward ratio. The compounding effect is applied monthly, 
+            Projections are calculated using {simulationMode ? `a simulated win rate of ${effectiveWinRate.toFixed(1)}%` : `your historical win rate (${tradeStats.winRate.toFixed(1)}%)`}{' '}
+            and the configured risk parameters. Each trade assumes you risk {riskPercent}% of your balance
+            with a {riskReward}:1 risk:reward ratio. The compounding effect is applied monthly,
             meaning your balance grows (or shrinks) based on the expected value of each trade.
           </p>
+          {simulationMode && (
+            <p className="sim-info-note">
+              <span className="material-icons">science</span>
+              <strong>Simulation mode is active.</strong> Projections use a simulated starting balance of{' '}
+              {formatCurrency(effectiveBalance)} and a {effectiveWinRate.toFixed(1)}% win rate instead of your real account data.
+            </p>
+          )}
           <p>
-            <strong>Note:</strong> These are projections based on statistical expectations. Actual results 
+            <strong>Note:</strong> These are projections based on statistical expectations. Actual results
             will vary based on market conditions and your trading performance.
           </p>
         </div>

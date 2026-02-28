@@ -246,6 +246,10 @@ async function getValidAccessToken(account) {
 // Sync trades from TradeLocker
 router.post('/sync', async (req, res) => {
   try {
+    // mode='initial'  → fetch full history, keep only the most recent 100 closed positions
+    // mode='refresh'  → incremental: fetch only trades newer than the last synced trade (default)
+    const { mode = 'refresh' } = req.body
+
     const account = await prisma.tradeLockerAccount.findUnique({
       where: { userId: req.userId }
     })
@@ -303,7 +307,7 @@ router.post('/sync', async (req, res) => {
     // ── Determine incremental sync window ──────────────────────────────────────
     // Run two lean DB queries in parallel:
     //   1. Fetch only tradelockerTradeId values (avoids loading full trade objects)
-    //   2. Find the latest already-synced trade's date (used as API startTime)
+    //   2. Find the latest already-synced trade's date (used as API startTime for refresh mode)
     const [existingTradeIdRows, latestSyncedTrade] = await Promise.all([
       prisma.trade.findMany({
         where: { userId: req.userId, tradelockerTradeId: { not: null } },
@@ -322,15 +326,17 @@ router.post('/sync', async (req, res) => {
     )
     console.log(`Already synced: ${existingTradeLockerIds.size} trades in DB`)
 
-    // Use the latest synced trade's close date minus a 1-day buffer as the API
-    // startTime so we only ask TradeLocker for trades we haven't seen yet.
-    // The 1-day buffer guards against edge cases (e.g. trades that were open
-    // at the time of the last sync but closed slightly before it).
+    // 'initial' mode: always fetch the full history (no startTime filter) so we
+    // can slice the most-recent 100 positions below.
+    // 'refresh' mode: use the latest synced trade date minus a 1-day buffer so we
+    // only ask TradeLocker for trades we haven't seen yet.
     let syncStartTime = null
-    if (latestSyncedTrade?.date) {
+    if (mode === 'refresh' && latestSyncedTrade?.date) {
       const ONE_DAY_MS = 24 * 60 * 60 * 1000
       syncStartTime = String(new Date(latestSyncedTrade.date).getTime() - ONE_DAY_MS)
-      console.log(`Incremental sync from: ${new Date(Number(syncStartTime)).toISOString()} (latest trade date − 1 day)`)
+      console.log(`[refresh] Incremental sync from: ${new Date(Number(syncStartTime)).toISOString()} (latest trade date − 1 day)`)
+    } else if (mode === 'initial') {
+      console.log('[initial] Fetching full history — will keep the 100 most recent closed positions')
     } else {
       console.log('Full sync: no existing trades found, fetching complete history')
     }
@@ -401,7 +407,20 @@ router.post('/sync', async (req, res) => {
     }
 
     // closedPositions is already sorted oldest-first by groupPositionOrders()
-    const sortedPositions = closedPositions
+    // Cap at 100 most-recent positions when:
+    //   • mode is explicitly 'initial', OR
+    //   • this is the very first sync (no trades in DB yet)
+    // Subsequent refreshes (trades already in DB) get all new ones.
+    const INITIAL_LIMIT = 100
+    const isFirstSync = existingTradeLockerIds.size === 0
+    const shouldCap = mode === 'initial' || isFirstSync
+    const sortedPositions = shouldCap
+      ? closedPositions.slice(-INITIAL_LIMIT)
+      : closedPositions
+
+    if (shouldCap) {
+      console.log(`[${isFirstSync ? 'first-sync' : 'initial'}] Capped to ${sortedPositions.length} most-recent positions out of ${closedPositions.length} total`)
+    }
 
     // Collect unique instrument IDs from grouped positions
     const instrumentIdSet = new Set()
@@ -539,7 +558,9 @@ router.post('/sync', async (req, res) => {
       tradesSkipped: skippedCount,
       accountBalance: balanceData.balance,
       totalFetched: closedPositions.length,
-      rawOrders: rawOrders.length
+      rawOrders: rawOrders.length,
+      mode,
+      lastSyncedAt: new Date().toISOString()
     })
   } catch (error) {
     console.error('Sync TradeLocker error:', error)

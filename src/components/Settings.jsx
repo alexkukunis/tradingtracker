@@ -1,14 +1,43 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { toast } from 'sonner'
 import { tradelockerAPI } from '../services/api'
 import './Settings.css'
 
-function Settings({ settings, onSave, onSync }) {
+// Returns a human-readable "X ago" string for a given date
+function timeAgo(date) {
+  if (!date) return null
+  const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000)
+  if (seconds < 10) return 'just now'
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
+}
+
+function Settings({
+  settings,
+  onSave,
+  onSync,
+  simulationMode,
+  onSimulationModeChange,
+  simBalance,
+  onSimBalanceChange,
+  simWinRate,
+  onSimWinRateChange
+}) {
   const [formData, setFormData] = useState(settings)
   const [tradelockerStatus, setTradelockerStatus] = useState(null)
   const [connecting, setConnecting] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [showConnectForm, setShowConnectForm] = useState(false)
+  // Tracks the timestamp of the last sync for the "Last updated X ago" display
+  const [lastSyncedAt, setLastSyncedAt] = useState(null)
+  // Ticks every 30s to re-render the relative time string (no API calls)
+  const [, setTimeTick] = useState(0)
+  const tickRef = useRef(null)
   const [connectForm, setConnectForm] = useState({
     email: '',
     password: '',
@@ -18,8 +47,25 @@ function Settings({ settings, onSave, onSync }) {
   })
   const [availableAccounts, setAvailableAccounts] = useState([])
 
+  // Sync formData when settings prop changes (e.g., after save or initial load)
+  useEffect(() => {
+    if (settings) {
+      setFormData({
+        startingBalance: settings.startingBalance ?? 1000,
+        riskPercent: settings.riskPercent ?? 2,
+        riskReward: settings.riskReward ?? 3
+      })
+    }
+  }, [settings])
+
   useEffect(() => {
     loadTradeLockerStatus()
+  }, [])
+
+  // Refresh the "X ago" display every 30 seconds — no API calls, just a re-render
+  useEffect(() => {
+    tickRef.current = setInterval(() => setTimeTick(t => t + 1), 30_000)
+    return () => clearInterval(tickRef.current)
   }, [])
 
   const loadTradeLockerStatus = async () => {
@@ -28,6 +74,10 @@ function Settings({ settings, onSave, onSync }) {
       setTradelockerStatus(status)
       if (status.connected) {
         setShowConnectForm(false)
+        // Seed the "last updated" timestamp from the server
+        if (status.account?.lastSyncedAt) {
+          setLastSyncedAt(status.account.lastSyncedAt)
+        }
       }
     } catch (error) {
       console.error('Failed to load TradeLocker status:', error)
@@ -77,31 +127,38 @@ function Settings({ settings, onSave, onSync }) {
     }
   }
 
-  const handleSync = async () => {
+  const handleSync = async (mode = 'refresh') => {
     setSyncing(true)
     try {
-      const result = await tradelockerAPI.sync()
+      const result = await tradelockerAPI.sync(mode)
       const newCount     = result.tradesCreated ?? 0
       const skippedCount = result.tradesSkipped  ?? 0
 
       if (newCount > 0) {
-        // New trades were found and saved
         const skippedNote = skippedCount > 0
           ? ` (${skippedCount} already synced, skipped)`
           : ''
-        toast.success(`✅ ${newCount} new trade${newCount !== 1 ? 's' : ''} synced${skippedNote}`)
+        if (mode === 'initial') {
+          toast.success(`✅ ${newCount} trade${newCount !== 1 ? 's' : ''} imported from your last 100${skippedNote}`)
+        } else {
+          toast.success(`✅ ${newCount} new trade${newCount !== 1 ? 's' : ''} synced${skippedNote}`)
+        }
       } else if (skippedCount > 0) {
-        // Fetched trades but all were already in the DB
         toast.info(`✅ Already up to date — ${skippedCount} trade${skippedCount !== 1 ? 's' : ''} already synced, nothing new`)
       } else {
-        // Nothing fetched at all (e.g. no closed trades in the account)
         toast.info('✅ Already up to date — no new trades found')
+      }
+
+      // Update the "last updated" display immediately from the response timestamp
+      if (result.lastSyncedAt) {
+        setLastSyncedAt(result.lastSyncedAt)
+      } else {
+        setLastSyncedAt(new Date().toISOString())
       }
 
       if (onSync) {
         await onSync()
       }
-      await loadTradeLockerStatus()
     } catch (error) {
       toast.error(error.message || 'Failed to sync trades from TradeLocker')
     } finally {
@@ -111,16 +168,22 @@ function Settings({ settings, onSave, onSync }) {
 
   const handleChange = (e) => {
     const { name, value } = e.target
-    setFormData(prev => ({
-      ...prev,
-      [name]: parseFloat(value) || 0
-    }))
+    // Store the raw string while the user is typing so they can clear the field
+    // and enter a new number without it snapping back to 0.
+    setFormData(prev => ({ ...prev, [name]: value }))
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     try {
-      await onSave(formData)
+      // Parse to numbers only on save, defaulting to 0 if blank
+      const parsed = {
+        ...formData,
+        startingBalance: parseFloat(formData.startingBalance) || 0,
+        riskPercent:     parseFloat(formData.riskPercent)     || 0,
+        riskReward:      parseFloat(formData.riskReward)      || 0,
+      }
+      await onSave(parsed)
       toast.success('Settings saved successfully!')
     } catch (error) {
       toast.error('Failed to save settings. Please try again.')
@@ -198,13 +261,13 @@ function Settings({ settings, onSave, onSync }) {
               <div className="preview-item">
                 <span className="preview-label">Risk Amount:</span>
                 <span className="preview-value">
-                  ${((formData.startingBalance * formData.riskPercent) / 100).toFixed(2)}
+                  ${(((parseFloat(formData.startingBalance) || 0) * (parseFloat(formData.riskPercent) || 0)) / 100).toFixed(2)}
                 </span>
               </div>
               <div className="preview-item">
                 <span className="preview-label">Target Amount:</span>
                 <span className="preview-value">
-                  ${((formData.startingBalance * formData.riskPercent * formData.riskReward) / 100).toFixed(2)}
+                  ${(((parseFloat(formData.startingBalance) || 0) * (parseFloat(formData.riskPercent) || 0) * (parseFloat(formData.riskReward) || 0)) / 100).toFixed(2)}
                 </span>
               </div>
             </div>
@@ -215,6 +278,85 @@ function Settings({ settings, onSave, onSync }) {
             Save Settings
           </button>
         </form>
+      </div>
+
+      {/* Simulation Mode */}
+      <div className={`settings-card sim-mode-card${simulationMode ? ' sim-active' : ''}`}>
+        <div className="sim-card-header">
+          <div className="sim-card-title-group">
+            <h2 className="settings-title">
+              <span className="material-icons">science</span>
+              Simulation Mode
+            </h2>
+            <p className="settings-subtitle">
+              Override live account data in Goals &amp; Projections with custom values for "what-if" scenarios
+            </p>
+          </div>
+          <div className="mode-toggle">
+            <button
+              className={`mode-toggle-btn${!simulationMode ? ' active' : ''}`}
+              onClick={() => onSimulationModeChange(false)}
+            >
+              <span className="material-icons">show_chart</span>
+              Real
+            </button>
+            <button
+              className={`mode-toggle-btn simulate${simulationMode ? ' active' : ''}`}
+              onClick={() => onSimulationModeChange(true)}
+            >
+              <span className="material-icons">science</span>
+              Simulate
+            </button>
+          </div>
+        </div>
+
+        {simulationMode ? (
+          <div className="sim-inputs-section">
+            <div className="sim-active-banner">
+              <span className="material-icons">info</span>
+              Simulation mode is <strong>ON</strong> — the Goals page will use the values below instead of your real account data.
+            </div>
+            <div className="sim-inputs-grid">
+              <div className="form-group">
+                <label htmlFor="sim-balance" className="form-label">
+                  Simulated Balance ($)
+                </label>
+                <input
+                  type="number"
+                  id="sim-balance"
+                  value={simBalance}
+                  onChange={(e) => onSimBalanceChange(parseFloat(e.target.value) || 0)}
+                  step="100"
+                  min="0"
+                  className="form-input"
+                />
+                <p className="form-hint">This balance will be used as the starting point for projections</p>
+              </div>
+              <div className="form-group">
+                <label htmlFor="sim-winrate" className="form-label">
+                  Simulated Win Rate (%)
+                </label>
+                <input
+                  type="number"
+                  id="sim-winrate"
+                  value={simWinRate}
+                  onChange={(e) => onSimWinRateChange(parseFloat(e.target.value) || 0)}
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  className="form-input"
+                />
+                <p className="form-hint">This win rate will replace your historical win rate in projections</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="sim-off-state">
+            <span className="material-icons sim-off-icon">show_chart</span>
+            <p>Goals &amp; Projections are using your <strong>real live account data</strong>.</p>
+            <p className="sim-off-hint">Switch to Simulate to test different balance and win rate scenarios without affecting your real data.</p>
+          </div>
+        )}
       </div>
 
       {/* TradeLocker Integration */}
@@ -237,23 +379,31 @@ function Settings({ settings, onSave, onSync }) {
                 <p className="status-details">
                   Server: {tradelockerStatus.account?.server} &mdash; {tradelockerStatus.account?.environment === 'demo' ? 'Demo' : 'Live'}
                 </p>
-                {tradelockerStatus.account?.lastSyncedAt && (
-                  <p className="status-details">
-                    Last synced: {new Date(tradelockerStatus.account.lastSyncedAt).toLocaleString()}
-                  </p>
-                )}
               </div>
             </div>
             <div className="tradelocker-actions">
-              <button 
-                onClick={handleSync} 
-                disabled={syncing}
-                className={`sync-button${syncing ? ' syncing' : ''}`}
-              >
-                <span className={`material-icons${syncing ? ' spin' : ''}`}>sync</span>
-                {syncing ? 'Syncing new trades…' : 'Sync New Trades'}
-              </button>
-              <button 
+              {!lastSyncedAt ? (
+                // ── First-time / no previous sync ─────────────────────────────
+                <button
+                  onClick={() => handleSync('initial')}
+                  disabled={syncing}
+                  className={`sync-button${syncing ? ' syncing' : ''}`}
+                >
+                  <span className={`material-icons${syncing ? ' spin' : ''}`}>download</span>
+                  {syncing ? 'Importing trades…' : 'Sync Last 100 Trades'}
+                </button>
+              ) : (
+                // ── Subsequent refreshes ──────────────────────────────────────
+                <button
+                  onClick={() => handleSync('refresh')}
+                  disabled={syncing}
+                  className={`sync-button${syncing ? ' syncing' : ''}`}
+                >
+                  <span className={`material-icons${syncing ? ' spin' : ''}`}>refresh</span>
+                  {syncing ? 'Checking for new trades…' : 'Refresh'}
+                </button>
+              )}
+              <button
                 onClick={handleDisconnect}
                 className="disconnect-button"
               >
@@ -261,12 +411,26 @@ function Settings({ settings, onSave, onSync }) {
                 Disconnect
               </button>
             </div>
-            {!syncing && (
-              <p className="form-hint sync-hint">
-                <span className="material-icons" style={{ fontSize: '13px', verticalAlign: 'middle' }}>info_outline</span>
-                {' '}Only new trades not yet in your journal will be added. Already synced trades are automatically skipped.
-              </p>
-            )}
+
+            {/* Last updated / status line */}
+            <div className="last-updated-row">
+              {syncing ? (
+                <span className="last-updated-text">
+                  <span className="material-icons last-updated-icon">hourglass_top</span>
+                  Fetching latest closed positions…
+                </span>
+              ) : lastSyncedAt ? (
+                <span className="last-updated-text">
+                  <span className="material-icons last-updated-icon">schedule</span>
+                  Last updated {timeAgo(lastSyncedAt)}
+                </span>
+              ) : (
+                <span className="last-updated-text muted">
+                  <span className="material-icons last-updated-icon">info_outline</span>
+                  Not yet synced — click "Sync Last 100 Trades" to import your recent closed positions
+                </span>
+              )}
+            </div>
           </div>
         ) : (
           <div className="tradelocker-disconnected">
