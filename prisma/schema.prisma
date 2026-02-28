@@ -1,0 +1,88 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  trades            Trade[]
+  settings          Settings?
+  tradelockerAccount TradeLockerAccount?
+}
+
+model Trade {
+  id                 String   @id @default(cuid())
+  userId             String
+  date               DateTime
+  day                String
+  pnl                Float
+  openBalance        Float
+  closeBalance       Float
+  percentGain        Float?
+  riskDollar         Float?
+  targetDollar       Float?
+  rrAchieved         Float?
+  targetHit          Boolean  @default(false)
+  notes              String?
+  result             String?
+  stopLoss           Float?   // Stop Loss price from TradeLocker API field [17]
+  takeProfit         Float?   // Take Profit price from TradeLocker API field [19]
+  tradelockerTradeId String?  // TradeLocker trade ID to avoid duplicates
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([userId, date])
+  @@index([tradelockerTradeId])
+}
+
+model Settings {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  startingBalance Float    @default(1000)
+  riskPercent     Float    @default(2)
+  riskReward      Float    @default(3)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+}
+
+model TradeLockerAccount {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  email           String   // TradeLocker email
+  password        String   // Encrypted TradeLocker password
+  server          String   // Actual TradeLocker server name (e.g. "TradeLocker-Live", "OSP-Server1")
+  environment     String   @default("live") // "live" or "demo" — determines which API base URL to use
+  accountId       String?  // TradeLocker account ID
+  accNum          Int?     // Account number for API calls
+  accessToken     String?  // JWT access token
+  refreshToken    String?  // JWT refresh token
+  tokenExpiresAt  DateTime? // Token expiration time
+  lastSyncedAt    DateTime? // Last successful sync time
+  isConnected     Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+}

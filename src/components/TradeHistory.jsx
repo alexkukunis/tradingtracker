@@ -1,8 +1,48 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react'
-import { format, parseISO } from 'date-fns'
-import { formatCurrency, calculateCumulativePnL, getResultIcon, calculateTradeMetrics, getDayName, getResultMessage } from '../utils/calculations'
+import { format } from 'date-fns'
+import { formatCurrency, calculateCumulativePnL, getResultIcon, calculateTradeMetrics, getDayName, getResultMessage, parseDateLocal } from '../utils/calculations'
 import Modal from './Modal'
 import './TradeHistory.css'
+
+/**
+ * Parse the structured pipe-separated notes from TradeLocker synced trades.
+ * Format: "NAS100 | Sell 0.19 Market | Entry: 24876.12 | Exit: 24869.41 | SL: 24941.98 | TP: 25000.00 | Fee: $-0.19 | Swap: $0.00 | Order: 123 | Position: 456"
+ */
+function parseTradeLockerNotes(notes) {
+  if (!notes || notes === 'TradeLocker trade') return null
+
+  const parts = notes.split(' | ').map(p => p.trim())
+  if (parts.length < 2) return null
+
+  const result = {}
+
+  // First part is instrument symbol (e.g. "NAS100") if it doesn't contain ":"
+  if (parts[0] && !parts[0].includes(':') && !parts[0].toLowerCase().startsWith('instrument')) {
+    result.instrument = parts[0]
+  } else if (parts[0] && parts[0].startsWith('Instrument ')) {
+    result.instrument = parts[0].replace('Instrument ', '').trim()
+  }
+
+  for (const part of parts) {
+    const sideMatch = part.match(/^(Buy|Sell)\s+([\d.]+)\s*(\w*)/)
+    if (sideMatch) {
+      result.side = sideMatch[1]
+      result.volume = sideMatch[2]
+      result.orderType = sideMatch[3] || 'Market'
+      continue
+    }
+    if (part.startsWith('Entry:'))    { result.entryPrice = part.replace('Entry:', '').trim(); continue }
+    if (part.startsWith('Exit:'))     { result.exitPrice  = part.replace('Exit:', '').trim();  continue }
+    if (part.startsWith('SL:'))       { result.sl         = part.replace('SL:', '').trim();    continue }
+    if (part.startsWith('TP:'))       { result.tp         = part.replace('TP:', '').trim();    continue }
+    if (part.startsWith('Fee:'))      { result.fee        = part.replace('Fee:', '').trim();   continue }
+    if (part.startsWith('Swap:'))     { result.swap       = part.replace('Swap:', '').trim();  continue }
+    if (part.startsWith('Order:'))    { result.orderId    = part.replace('Order:', '').trim(); continue }
+    if (part.startsWith('Position:')) { result.positionId = part.replace('Position:', '').trim(); continue }
+  }
+
+  return Object.keys(result).length > 1 ? result : null
+}
 
 function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
   const [editingTrade, setEditingTrade] = useState(null)
@@ -21,7 +61,7 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
 
   const sortedTrades = useMemo(() => {
     return [...trades].sort((a, b) => {
-      const dateCompare = new Date(a.date).getTime() - new Date(b.date).getTime()
+      const dateCompare = parseDateLocal(a.date).getTime() - parseDateLocal(b.date).getTime()
       if (dateCompare !== 0) return dateCompare
       return (a.id || '').localeCompare(b.id || '')
     })
@@ -35,21 +75,15 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (openDropdownId === null) return
-      
-      // Get the dropdown container for the currently open dropdown
       const dropdownRef = dropdownRefs.current[openDropdownId]
       if (!dropdownRef) return
-      
-      // Check if click is outside the dropdown container
       if (!dropdownRef.contains(event.target)) {
         setOpenDropdownId(null)
       }
     }
 
-    // Use a small timeout to ensure the click event that opened the dropdown completes first
     const timeoutId = setTimeout(() => {
       if (openDropdownId !== null) {
-        // Use 'click' event instead of 'mousedown' to avoid race conditions
         document.addEventListener('click', handleClickOutside, true)
       }
     }, 0)
@@ -72,8 +106,10 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
 
   const openEditModal = (trade) => {
     setEditingTrade(trade)
+    const tradeDate = parseDateLocal(trade.date)
+    const formattedDate = format(tradeDate, 'yyyy-MM-dd')
     setFormData({
-      date: trade.date,
+      date: formattedDate,
       pnl: trade.pnl.toString(),
       notes: trade.notes || ''
     })
@@ -84,25 +120,17 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
   const closeEditModal = () => {
     setIsEditModalOpen(false)
     setEditingTrade(null)
-    setFormData({
-      date: '',
-      pnl: '',
-      notes: ''
-    })
+    setFormData({ date: '', pnl: '', notes: '' })
   }
 
   const handleRowClick = (trade, e) => {
-    // Don't open modal if clicking on dropdown or action buttons
-    if (e.target.closest('.action-dropdown') || e.target.closest('.dropdown-menu')) {
-      return
-    }
+    if (e.target.closest('.action-dropdown') || e.target.closest('.dropdown-menu')) return
     openViewModal(trade)
   }
 
   const toggleDropdown = (tradeId, e) => {
     e.stopPropagation()
     e.preventDefault()
-    // Use functional update to ensure we get the latest state
     setOpenDropdownId(prevId => prevId === tradeId ? null : tradeId)
   }
 
@@ -131,22 +159,19 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
     if (!editingTrade) return
 
     const pnl = parseFloat(formData.pnl) || 0
-    
-    // Find the open balance for this trade (balance before this trade in chronological order)
     const tradeIndex = sortedTrades.findIndex(t => t.id === editingTrade.id)
     let openBalance = settings.startingBalance
     if (tradeIndex > 0) {
       openBalance = sortedTrades[tradeIndex - 1].closeBalance || settings.startingBalance
     } else if (tradeIndex === 0) {
-      // Check if there are any trades before this date
       const tradesBefore = sortedTrades.filter(t => {
-        const tradeDate = new Date(t.date)
-        const editDate = new Date(formData.date)
+        const tradeDate = parseDateLocal(t.date)
+        const editDate = parseDateLocal(formData.date)
         return tradeDate < editDate || (tradeDate.getTime() === editDate.getTime() && t.id < editingTrade.id)
       })
       if (tradesBefore.length > 0) {
         const sortedBefore = [...tradesBefore].sort((a, b) => {
-          const dateCompare = new Date(a.date).getTime() - new Date(b.date).getTime()
+          const dateCompare = parseDateLocal(a.date).getTime() - parseDateLocal(b.date).getTime()
           if (dateCompare !== 0) return dateCompare
           return (a.id || '').localeCompare(b.id || '')
         })
@@ -154,21 +179,16 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
       }
     }
 
-    const metrics = calculateTradeMetrics(
-      pnl,
-      openBalance,
-      settings.riskPercent,
-      settings.riskReward
-    )
+    const metrics = calculateTradeMetrics(pnl, openBalance, settings.riskPercent, settings.riskReward)
+    const { cumulativePnL, ...metricsWithoutCumulative } = metrics
 
     const updatedTrade = {
-      ...editingTrade,
       date: formData.date,
       day: getDayName(formData.date),
       pnl: Math.round(pnl * 100) / 100,
       openBalance: Math.round(openBalance * 100) / 100,
-      ...metrics,
-      notes: formData.notes,
+      ...metricsWithoutCumulative,
+      notes: formData.notes || '',
       result: getResultMessage(metrics.targetHit, pnl)
     }
 
@@ -210,7 +230,7 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
         <table className="trade-table">
           <thead>
             <tr>
-              <th>Date</th>
+              <th>Date / Instrument</th>
               <th>P&L</th>
               <th>%</th>
               <th>Balance</th>
@@ -220,165 +240,220 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
             </tr>
           </thead>
           <tbody>
-            {tradesWithCumulative.map((trade, idx) => (
-              <tr 
-                key={trade.id || idx} 
-                className={`${trade.pnl >= 0 ? 'win-row' : 'loss-row'} clickable-row`}
-                onClick={(e) => handleRowClick(trade, e)}
-              >
-                <td>
-                  <div className="date-cell">
-                    <div className="date-primary">{format(parseISO(trade.date), 'MMM d, yyyy')}</div>
-                    <div className="date-secondary">{trade.day}</div>
-                  </div>
-                </td>
-                <td className={trade.pnl >= 0 ? 'positive' : 'negative'}>
-                  {formatCurrency(trade.pnl)}
-                </td>
-                <td className={trade.percentGainLoss >= 0 ? 'positive' : 'negative'}>
-                  {trade.percentGainLoss.toFixed(2)}%
-                </td>
-                <td>
-                  <div className="balance-cell">
-                    <div className="balance-label">Close</div>
-                    <div className="balance-value">{formatCurrency(trade.closeBalance)}</div>
-                  </div>
-                </td>
-                <td>
-                  <span className={`rr-badge ${trade.rrAchieved >= trade.riskReward ? 'target-hit' : ''}`}>
-                    {trade.rrAchieved.toFixed(2)}x
-                  </span>
-                </td>
-                <td>
-                  <span className={`result-badge ${trade.pnl >= 0 ? 'positive' : 'negative'} ${trade.targetHit ? 'crushed' : ''}`}>
-                    <span className="material-icons">{getResultIcon(trade.targetHit, trade.pnl)}</span>
-                    {trade.result}
-                  </span>
-                </td>
-                <td>
-                  <div 
-                    className="action-dropdown"
-                    ref={(el) => {
-                      if (el) {
-                        dropdownRefs.current[trade.id] = el
-                      } else {
-                        delete dropdownRefs.current[trade.id]
-                      }
-                    }}
-                  >
-                    <button
-                      onClick={(e) => toggleDropdown(trade.id, e)}
-                      className="dropdown-toggle"
-                      title="Actions"
-                      aria-expanded={openDropdownId === trade.id}
-                      type="button"
+            {tradesWithCumulative.map((trade, idx) => {
+              const tlData = trade.tradelockerTradeId ? parseTradeLockerNotes(trade.notes) : null
+              return (
+                <tr
+                  key={trade.id || idx}
+                  className={`${trade.pnl >= 0 ? 'win-row' : 'loss-row'} clickable-row`}
+                  onClick={(e) => handleRowClick(trade, e)}
+                >
+                  <td>
+                    <div className="date-cell">
+                      <div className="date-primary">{format(parseDateLocal(trade.date), 'MMM d, yyyy')}</div>
+                      <div className="date-secondary">{trade.day}</div>
+                      {tlData?.instrument && (
+                        <div className="instrument-row">
+                          <span className="instrument-badge">{tlData.instrument}</span>
+                          {tlData.side && (
+                            <span className={`side-badge ${tlData.side.toLowerCase()}`}>{tlData.side}</span>
+                          )}
+                          {tlData.volume && (
+                            <span className="volume-text">{tlData.volume}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td className={trade.pnl >= 0 ? 'positive' : 'negative'}>
+                    {formatCurrency(trade.pnl)}
+                  </td>
+                  <td className={trade.percentGain >= 0 ? 'positive' : 'negative'}>
+                    {trade.percentGain.toFixed(2)}%
+                  </td>
+                  <td>
+                    <div className="balance-cell">
+                      <div className="balance-label">Close</div>
+                      <div className="balance-value">{formatCurrency(trade.closeBalance)}</div>
+                    </div>
+                  </td>
+                  <td>
+                    <span className={`rr-badge ${trade.rrAchieved >= trade.riskReward ? 'target-hit' : ''}`}>
+                      {trade.rrAchieved.toFixed(2)}x
+                    </span>
+                  </td>
+                  <td>
+                    <span className={`result-badge ${trade.pnl >= 0 ? 'positive' : 'negative'} ${trade.targetHit ? 'crushed' : ''}`}>
+                      <span className="material-icons">{getResultIcon(trade.targetHit, trade.pnl)}</span>
+                      {trade.result}
+                    </span>
+                  </td>
+                  <td>
+                    <div
+                      className="action-dropdown"
+                      ref={(el) => {
+                        if (el) dropdownRefs.current[trade.id] = el
+                        else delete dropdownRefs.current[trade.id]
+                      }}
                     >
-                      <span className="material-icons">more_vert</span>
-                    </button>
-                    {openDropdownId === trade.id && (
-                      <div 
-                        className="dropdown-menu" 
-                        onClick={(e) => e.stopPropagation()}
-                        onMouseDown={(e) => e.preventDefault()}
+                      <button
+                        onClick={(e) => toggleDropdown(trade.id, e)}
+                        className="dropdown-toggle"
+                        title="Actions"
+                        aria-expanded={openDropdownId === trade.id}
+                        type="button"
                       >
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            openEditModal(trade)
-                          }}
-                          className="dropdown-item"
-                          type="button"
+                        <span className="material-icons">more_vert</span>
+                      </button>
+                      {openDropdownId === trade.id && (
+                        <div
+                          className="dropdown-menu"
+                          onClick={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.preventDefault()}
                         >
-                          <span className="material-icons">edit</span>
-                          Edit
-                        </button>
-                        <button
-                          onClick={(e) => handleDeleteClick(trade, e)}
-                          className="dropdown-item delete"
-                          type="button"
-                        >
-                          <span className="material-icons">delete</span>
-                          Delete
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openEditModal(trade) }}
+                            className="dropdown-item"
+                            type="button"
+                          >
+                            <span className="material-icons">edit</span>
+                            Edit
+                          </button>
+                          <button
+                            onClick={(e) => handleDeleteClick(trade, e)}
+                            className="dropdown-item delete"
+                            type="button"
+                          >
+                            <span className="material-icons">delete</span>
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
 
       {/* Mobile Card View */}
       <div className="mobile-view">
-        {tradesWithCumulative.map((trade, idx) => (
-          <div 
-            key={trade.id || idx} 
-            className={`trade-card-mobile ${trade.pnl >= 0 ? 'win' : 'loss'}`}
-            onClick={() => openViewModal(trade)}
-          >
-            <div className="trade-card-header-mobile">
-              <div>
-                <div className="trade-date-mobile">
-                  <span className="material-icons">calendar_today</span>
-                  {format(parseISO(trade.date), 'MMM d, yyyy')} • {trade.day}
+        {tradesWithCumulative.map((trade, idx) => {
+          const tlData = trade.tradelockerTradeId ? parseTradeLockerNotes(trade.notes) : null
+          return (
+            <div
+              key={trade.id || idx}
+              className={`trade-card-mobile ${trade.pnl >= 0 ? 'win' : 'loss'}`}
+              onClick={() => openViewModal(trade)}
+            >
+              <div className="trade-card-header-mobile">
+                <div style={{ flex: 1 }}>
+                  <div className="trade-date-mobile">
+                    <span className="material-icons">calendar_today</span>
+                    {format(parseDateLocal(trade.date), 'MMM d, yyyy')} · {trade.day}
+                  </div>
+                  {tlData?.instrument ? (
+                    <div className="tl-card-instrument">
+                      <span className="instrument-badge">{tlData.instrument}</span>
+                      {tlData.side && (
+                        <span className={`side-badge ${tlData.side.toLowerCase()}`}>{tlData.side}</span>
+                      )}
+                      {tlData.orderType && (
+                        <span className="order-type-text">{tlData.orderType}</span>
+                      )}
+                      {tlData.volume && (
+                        <span className="volume-text">{tlData.volume} lots</span>
+                      )}
+                    </div>
+                  ) : null}
+                  <div className={`trade-pnl-mobile ${trade.pnl >= 0 ? 'positive' : 'negative'}`}>
+                    {trade.pnl >= 0 ? '+' : ''}{formatCurrency(trade.pnl)}
+                  </div>
                 </div>
-                <div className={`trade-pnl-mobile ${trade.pnl >= 0 ? 'positive' : 'negative'}`}>
-                  {trade.pnl >= 0 ? '+' : ''}{formatCurrency(trade.pnl)}
-                </div>
+                <span className={`result-badge-mobile ${trade.pnl >= 0 ? 'positive' : 'negative'}`}>
+                  <span className="material-icons">{getResultIcon(trade.targetHit, trade.pnl)}</span>
+                  {trade.result}
+                </span>
               </div>
-              <span className={`result-badge-mobile ${trade.pnl >= 0 ? 'positive' : 'negative'}`}>
-                <span className="material-icons">{getResultIcon(trade.targetHit, trade.pnl)}</span>
-                {trade.result}
-              </span>
-            </div>
-            
-            <div className="trade-card-body-mobile">
-              <div className="trade-metrics-mobile">
-                <div className="metric-item-mobile">
-                  <span className="metric-label-mobile">% Gain/Loss</span>
-                  <span className={`metric-value-mobile ${trade.percentGainLoss >= 0 ? 'positive' : 'negative'}`}>
-                    {trade.percentGainLoss.toFixed(2)}%
-                  </span>
-                </div>
-                <div className="metric-item-mobile">
-                  <span className="metric-label-mobile">Close Balance</span>
-                  <span className="metric-value-mobile">{formatCurrency(trade.closeBalance)}</span>
-                </div>
-                <div className="metric-item-mobile">
-                  <span className="metric-label-mobile">R:R Achieved</span>
-                  <span className={`metric-value-mobile ${trade.rrAchieved >= trade.riskReward ? 'positive' : ''}`}>
-                    {trade.rrAchieved.toFixed(2)}x
-                  </span>
-                </div>
-              </div>
-            </div>
 
-            <div className="trade-card-actions-mobile">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  openEditModal(trade)
-                }}
-                className="edit-button-mobile"
-              >
-                <span className="material-icons">edit</span>
-                Edit
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleDeleteClick(trade, e)
-                }}
-                className="delete-button-mobile"
-              >
-                <span className="material-icons">delete</span>
-                Delete
-              </button>
+              {tlData?.entryPrice && (
+                <div className="tl-card-prices">
+                  <div className="tl-price-item">
+                    <span className="tl-price-label">Entry</span>
+                    <span className="tl-price-value">{tlData.entryPrice}</span>
+                  </div>
+                  <span className="tl-price-arrow">→</span>
+                  <div className="tl-price-item">
+                    <span className="tl-price-label">Exit</span>
+                    <span className="tl-price-value">{tlData.exitPrice || '—'}</span>
+                  </div>
+                  {(trade.stopLoss != null || (tlData.sl && tlData.sl !== 'N/A')) && (
+                    <div className="tl-price-item">
+                      <span className="tl-price-label">SL</span>
+                      <span className="tl-price-value sl">
+                        {trade.stopLoss != null ? trade.stopLoss : tlData.sl}
+                      </span>
+                    </div>
+                  )}
+                  {(trade.takeProfit != null || (tlData.tp && tlData.tp !== 'N/A')) && (
+                    <div className="tl-price-item">
+                      <span className="tl-price-label">TP</span>
+                      <span className="tl-price-value tp">
+                        {trade.takeProfit != null ? trade.takeProfit : tlData.tp}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="trade-card-body-mobile">
+                <div className="trade-metrics-mobile">
+                  <div className="metric-item-mobile">
+                    <span className="metric-label-mobile">% Gain/Loss</span>
+                    <span className={`metric-value-mobile ${trade.percentGain >= 0 ? 'positive' : 'negative'}`}>
+                      {trade.percentGain.toFixed(2)}%
+                    </span>
+                  </div>
+                  <div className="metric-item-mobile">
+                    <span className="metric-label-mobile">Close Balance</span>
+                    <span className="metric-value-mobile">{formatCurrency(trade.closeBalance)}</span>
+                  </div>
+                  <div className="metric-item-mobile">
+                    <span className="metric-label-mobile">R:R Achieved</span>
+                    <span className={`metric-value-mobile ${trade.rrAchieved >= trade.riskReward ? 'positive' : ''}`}>
+                      {trade.rrAchieved.toFixed(2)}x
+                    </span>
+                  </div>
+                  {tlData?.fee && (
+                    <div className="metric-item-mobile">
+                      <span className="metric-label-mobile">Fee</span>
+                      <span className="metric-value-mobile negative">{tlData.fee}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="trade-card-actions-mobile">
+                <button
+                  onClick={(e) => { e.stopPropagation(); openEditModal(trade) }}
+                  className="edit-button-mobile"
+                >
+                  <span className="material-icons">edit</span>
+                  Edit
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleDeleteClick(trade, e) }}
+                  className="delete-button-mobile"
+                >
+                  <span className="material-icons">delete</span>
+                  Delete
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       <div className="history-summary">
@@ -388,15 +463,11 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
         </div>
         <div className="summary-card">
           <span className="summary-label">Wins</span>
-          <span className="summary-value positive">
-            {trades.filter(t => t.pnl > 0).length}
-          </span>
+          <span className="summary-value positive">{trades.filter(t => t.pnl > 0).length}</span>
         </div>
         <div className="summary-card">
           <span className="summary-label">Losses</span>
-          <span className="summary-value negative">
-            {trades.filter(t => t.pnl < 0).length}
-          </span>
+          <span className="summary-value negative">{trades.filter(t => t.pnl < 0).length}</span>
         </div>
         <div className="summary-card">
           <span className="summary-label">Total P&L</span>
@@ -410,95 +481,195 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
       <Modal
         isOpen={isViewModalOpen}
         onClose={closeViewModal}
-        title={viewingTrade ? `Trade Details - ${format(parseISO(viewingTrade.date), 'MMM d, yyyy')}` : 'Trade Details'}
+        title={viewingTrade ? `Trade Details — ${format(parseDateLocal(viewingTrade.date), 'MMM d, yyyy')}` : 'Trade Details'}
         size="medium"
       >
-        {viewingTrade && (
-          <div className="trade-details-modal">
-            <div className="trade-details-header">
-              <div className={`trade-result-large ${viewingTrade.pnl >= 0 ? 'positive' : 'negative'}`}>
-                <span className="material-icons">{getResultIcon(viewingTrade.targetHit, viewingTrade.pnl)}</span>
-                <div>
-                  <div className="result-label">{viewingTrade.result}</div>
-                  <div className="result-pnl">
-                    {viewingTrade.pnl >= 0 ? '+' : ''}{formatCurrency(viewingTrade.pnl)}
+        {viewingTrade && (() => {
+          const tlData = viewingTrade.tradelockerTradeId ? parseTradeLockerNotes(viewingTrade.notes) : null
+          return (
+            <div className="trade-details-modal">
+              <div className="trade-details-header">
+                <div className={`trade-result-large ${viewingTrade.pnl >= 0 ? 'positive' : 'negative'}`}>
+                  <span className="material-icons">{getResultIcon(viewingTrade.targetHit, viewingTrade.pnl)}</span>
+                  <div>
+                    <div className="result-label">{viewingTrade.result}</div>
+                    <div className="result-pnl">
+                      {viewingTrade.pnl >= 0 ? '+' : ''}{formatCurrency(viewingTrade.pnl)}
+                    </div>
                   </div>
+                  {tlData?.instrument && (
+                    <div className="modal-instrument-block">
+                      <span className="instrument-badge lg">{tlData.instrument}</span>
+                      {tlData.side && (
+                        <span className={`side-badge lg ${tlData.side.toLowerCase()}`}>{tlData.side}</span>
+                      )}
+                      {tlData.orderType && (
+                        <span className="order-type-text">{tlData.orderType}</span>
+                      )}
+                      {tlData.volume && (
+                        <span className="volume-text">{tlData.volume} lots</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
 
-            <div className="trade-details-grid">
-              <div className="detail-item">
-                <span className="detail-label">Date</span>
-                <span className="detail-value">{format(parseISO(viewingTrade.date), 'EEEE, MMMM d, yyyy')}</span>
+              {/* TradeLocker Execution Details */}
+              {tlData && (
+                <div className="tl-details-section">
+                  <h4 className="tl-details-title">
+                    <span className="material-icons">candlestick_chart</span>
+                    Execution Details
+                  </h4>
+                  <div className="tl-details-grid">
+                    {tlData.entryPrice && (
+                      <div className="tl-detail-item">
+                        <span className="tl-detail-label">Entry Price</span>
+                        <span className="tl-detail-value">{tlData.entryPrice}</span>
+                      </div>
+                    )}
+                    {tlData.exitPrice && (
+                      <div className="tl-detail-item">
+                        <span className="tl-detail-label">Exit Price</span>
+                        <span className="tl-detail-value">{tlData.exitPrice}</span>
+                      </div>
+                    )}
+                    {/* Stop Loss — only show when a value is set */}
+                    {(viewingTrade.stopLoss != null || (tlData.sl && tlData.sl !== 'N/A')) && (
+                      <div className="tl-detail-item">
+                        <span className="tl-detail-label">Stop Loss</span>
+                        <span className="tl-detail-value sl">
+                          {viewingTrade.stopLoss != null ? viewingTrade.stopLoss : tlData.sl}
+                        </span>
+                      </div>
+                    )}
+                    {/* Take Profit — only show when a value is set */}
+                    {(viewingTrade.takeProfit != null || (tlData.tp && tlData.tp !== 'N/A')) && (
+                      <div className="tl-detail-item">
+                        <span className="tl-detail-label">Take Profit</span>
+                        <span className="tl-detail-value tp">
+                          {viewingTrade.takeProfit != null ? viewingTrade.takeProfit : tlData.tp}
+                        </span>
+                      </div>
+                    )}
+                    {tlData.volume && (
+                      <div className="tl-detail-item">
+                        <span className="tl-detail-label">Amount</span>
+                        <span className="tl-detail-value">{tlData.volume} lots</span>
+                      </div>
+                    )}
+                    {tlData.orderType && (
+                      <div className="tl-detail-item">
+                        <span className="tl-detail-label">Order Type</span>
+                        <span className="tl-detail-value">{tlData.orderType}</span>
+                      </div>
+                    )}
+                    <div className="tl-detail-item">
+                      <span className="tl-detail-label">Fee</span>
+                      <span className={`tl-detail-value ${tlData.fee && tlData.fee !== 'N/A' && tlData.fee.startsWith('-') ? 'negative' : ''}`}>
+                        {tlData.fee || 'N/A'}
+                      </span>
+                    </div>
+                    <div className="tl-detail-item">
+                      <span className="tl-detail-label">Swap</span>
+                      <span className="tl-detail-value">
+                        {tlData.swap || 'N/A'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Order / Position IDs */}
+                  {(tlData.orderId || tlData.positionId) && (
+                    <div className="tl-ids-section">
+                      {tlData.orderId && (
+                        <div className="tl-id-item">
+                          <span className="tl-id-label">Order ID</span>
+                          <span className="tl-id-value">{tlData.orderId}</span>
+                        </div>
+                      )}
+                      {tlData.positionId && (
+                        <div className="tl-id-item">
+                          <span className="tl-id-label">Position ID</span>
+                          <span className="tl-id-value">{tlData.positionId}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Standard Metrics Grid */}
+              <div className="trade-details-grid">
+                <div className="detail-item">
+                  <span className="detail-label">Date</span>
+                  <span className="detail-value">{format(parseDateLocal(viewingTrade.date), 'EEEE, MMMM d, yyyy')}</span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Day</span>
+                  <span className="detail-value">{viewingTrade.day}</span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">P&L</span>
+                  <span className={`detail-value ${viewingTrade.pnl >= 0 ? 'positive' : 'negative'}`}>
+                    {formatCurrency(viewingTrade.pnl)}
+                  </span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">% Gain/Loss</span>
+                  <span className={`detail-value ${viewingTrade.percentGain >= 0 ? 'positive' : 'negative'}`}>
+                    {viewingTrade.percentGain.toFixed(2)}%
+                  </span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Open Balance</span>
+                  <span className="detail-value">{formatCurrency(viewingTrade.openBalance)}</span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Close Balance</span>
+                  <span className="detail-value">{formatCurrency(viewingTrade.closeBalance)}</span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Risk $</span>
+                  <span className="detail-value">{formatCurrency(viewingTrade.riskDollar)}</span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Target $</span>
+                  <span className="detail-value">{formatCurrency(viewingTrade.targetDollar)}</span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">R:R Achieved</span>
+                  <span className={`detail-value ${viewingTrade.rrAchieved >= viewingTrade.riskReward ? 'positive' : ''}`}>
+                    {viewingTrade.rrAchieved.toFixed(2)}x
+                  </span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Cumulative P&L</span>
+                  <span className={`detail-value ${viewingTrade.cumulativePnL >= 0 ? 'positive' : 'negative'}`}>
+                    {formatCurrency(viewingTrade.cumulativePnL)}
+                  </span>
+                </div>
               </div>
-              <div className="detail-item">
-                <span className="detail-label">Day</span>
-                <span className="detail-value">{viewingTrade.day}</span>
-              </div>
-              <div className="detail-item">
-                <span className="detail-label">P&L</span>
-                <span className={`detail-value ${viewingTrade.pnl >= 0 ? 'positive' : 'negative'}`}>
-                  {formatCurrency(viewingTrade.pnl)}
-                </span>
-              </div>
-              <div className="detail-item">
-                <span className="detail-label">% Gain/Loss</span>
-                <span className={`detail-value ${viewingTrade.percentGainLoss >= 0 ? 'positive' : 'negative'}`}>
-                  {viewingTrade.percentGainLoss.toFixed(2)}%
-                </span>
-              </div>
-              <div className="detail-item">
-                <span className="detail-label">Open Balance</span>
-                <span className="detail-value">{formatCurrency(viewingTrade.openBalance)}</span>
-              </div>
-              <div className="detail-item">
-                <span className="detail-label">Close Balance</span>
-                <span className="detail-value">{formatCurrency(viewingTrade.closeBalance)}</span>
-              </div>
-              <div className="detail-item">
-                <span className="detail-label">Risk $</span>
-                <span className="detail-value">{formatCurrency(viewingTrade.riskDollar)}</span>
-              </div>
-              <div className="detail-item">
-                <span className="detail-label">Target $</span>
-                <span className="detail-value">{formatCurrency(viewingTrade.targetDollar)}</span>
-              </div>
-              <div className="detail-item">
-                <span className="detail-label">R:R Achieved</span>
-                <span className={`detail-value ${viewingTrade.rrAchieved >= viewingTrade.riskReward ? 'positive' : ''}`}>
-                  {viewingTrade.rrAchieved.toFixed(2)}x
-                </span>
-              </div>
-              <div className="detail-item">
-                <span className="detail-label">Cumulative P&L</span>
-                <span className={`detail-value ${viewingTrade.cumulativePnL >= 0 ? 'positive' : 'negative'}`}>
-                  {formatCurrency(viewingTrade.cumulativePnL)}
-                </span>
+
+              {/* Notes — only show for manual trades (TL trades already shown above) */}
+              {viewingTrade.notes && !tlData && (
+                <div className="trade-notes-section">
+                  <span className="notes-section-label">Notes</span>
+                  <div className="notes-content">{viewingTrade.notes}</div>
+                </div>
+              )}
+
+              <div className="trade-details-actions">
+                <button
+                  onClick={() => { closeViewModal(); openEditModal(viewingTrade) }}
+                  className="button-primary"
+                >
+                  <span className="material-icons">edit</span>
+                  Edit Trade
+                </button>
               </div>
             </div>
-
-            {viewingTrade.notes && (
-              <div className="trade-notes-section">
-                <span className="notes-section-label">Notes</span>
-                <div className="notes-content">{viewingTrade.notes}</div>
-              </div>
-            )}
-
-            <div className="trade-details-actions">
-              <button
-                onClick={() => {
-                  closeViewModal()
-                  openEditModal(viewingTrade)
-                }}
-                className="button-primary"
-              >
-                <span className="material-icons">edit</span>
-                Edit Trade
-              </button>
-            </div>
-          </div>
-        )}
+          )
+        })()}
       </Modal>
 
       {/* Edit Trade Modal */}
@@ -546,9 +717,7 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
           </div>
 
           <div className="form-actions">
-            <button type="button" className="button-secondary" onClick={closeEditModal}>
-              Cancel
-            </button>
+            <button type="button" className="button-secondary" onClick={closeEditModal}>Cancel</button>
             <button type="submit" className="button-primary">
               <span className="material-icons">save</span>
               Update Trade
@@ -574,31 +743,19 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
               <div className="delete-confirmation-details">
                 <div className="delete-trade-info">
                   <span className="delete-trade-date">
-                    {format(parseISO(tradeToDelete.date), 'MMM d, yyyy')}
+                    {format(parseDateLocal(tradeToDelete.date), 'MMM d, yyyy')}
                   </span>
                   <span className={`delete-trade-pnl ${tradeToDelete.pnl >= 0 ? 'positive' : 'negative'}`}>
                     {tradeToDelete.pnl >= 0 ? '+' : ''}{formatCurrency(tradeToDelete.pnl)}
                   </span>
                 </div>
-                <p className="delete-confirmation-warning">
-                  This action cannot be undone.
-                </p>
+                <p className="delete-confirmation-warning">This action cannot be undone.</p>
               </div>
             )}
           </div>
           <div className="delete-confirmation-actions">
-            <button
-              type="button"
-              className="button-secondary"
-              onClick={cancelDelete}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="button-danger"
-              onClick={confirmDelete}
-            >
+            <button type="button" className="button-secondary" onClick={cancelDelete}>Cancel</button>
+            <button type="button" className="button-danger" onClick={confirmDelete}>
               <span className="material-icons">delete</span>
               Delete Trade
             </button>
