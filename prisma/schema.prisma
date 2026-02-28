@@ -49,6 +49,9 @@ model Trade {
   @@index([userId])
   @@index([userId, date])
   @@index([tradelockerTradeId])
+  // Unique index enforced at DB level via a partial index (WHERE tradelockerTradeId IS NOT NULL).
+  // This prevents the same TradeLocker position being saved twice while allowing unlimited
+  // manual trades (tradelockerTradeId = null). See migration SQL for the actual DDL.
 }
 
 model Settings {

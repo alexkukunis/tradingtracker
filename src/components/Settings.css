@@ -147,6 +147,178 @@
   font-size: 20px;
 }
 
+/* TradeLocker Integration Styles */
+.tradelocker-connected,
+.tradelocker-disconnected {
+  margin-top: 1rem;
+}
+
+.connection-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.25rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  margin-bottom: 1.25rem;
+}
+
+.status-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+}
+
+.status-icon.connected {
+  color: #10b981;
+}
+
+.status-text {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.status-details {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin: 0.25rem 0;
+}
+
+.tradelocker-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.sync-button,
+.disconnect-button,
+.connect-button {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: var(--radius-md);
+  font-weight: 500;
+  font-size: 0.9375rem;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.sync-button {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.sync-button:hover:not(:disabled) {
+  background: var(--accent-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.sync-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.disconnect-button {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.disconnect-button:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-light);
+}
+
+.connect-button {
+  background: var(--accent-primary);
+  color: white;
+  width: 100%;
+  justify-content: center;
+}
+
+.connect-button:hover {
+  background: var(--accent-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.connect-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  margin-top: 1rem;
+}
+
+.connect-form-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.connect-submit-button,
+.cancel-button {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: var(--radius-md);
+  font-weight: 500;
+  font-size: 0.9375rem;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+
+.connect-submit-button {
+  background: var(--accent-primary);
+  color: white;
+  flex: 1;
+}
+
+.connect-submit-button:hover:not(:disabled) {
+  background: var(--accent-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.connect-submit-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.cancel-button {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.cancel-button:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-light);
+}
+
+/* Sync hint text below the action buttons */
+.sync-hint {
+  margin-top: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted, var(--text-secondary));
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* Spinning animation for the sync icon while syncing is in progress */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.material-icons.spin {
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
 @media (max-width: 768px) {
   .settings-card {
     padding: 1.5rem;
@@ -154,5 +326,15 @@
 
   .preview-grid {
     grid-template-columns: 1fr;
+  }
+
+  .tradelocker-actions {
+    flex-direction: column;
+  }
+
+  .sync-button,
+  .disconnect-button {
+    width: 100%;
+    justify-content: center;
   }
 }

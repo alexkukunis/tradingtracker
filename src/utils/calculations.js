@@ -1,22 +1,34 @@
-import { format, parseISO, startOfDay, isSameDay } from 'date-fns'
+import { format, startOfDay, isSameDay } from 'date-fns'
+
+// Parse a YYYY-MM-DD date string as LOCAL midnight (parseISO treats date-only
+// strings as UTC midnight, which shows the wrong day in US timezones)
+export const parseDateLocal = (dateString) => {
+  if (!dateString || typeof dateString !== 'string') return new Date(NaN)
+  // Standard YYYY-MM-DD → append local time to avoid UTC interpretation
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return new Date(dateString + 'T00:00:00')
+  // Handle ISO date strings (e.g., "2024-02-27T00:00:00.000Z") by extracting date part
+  const isoMatch = dateString.match(/^(\d{4}-\d{2}-\d{2})/)
+  if (isoMatch) return new Date(isoMatch[1] + 'T00:00:00')
+  // Fallback for any other string format
+  return new Date(dateString)
+}
 
 export const calculateTradeMetrics = (pnl, openBalance, riskPercent, riskReward) => {
   const riskDollar = (openBalance * riskPercent) / 100
   const targetDollar = riskDollar * riskReward
-  const percentGainLoss = (pnl / openBalance) * 100
+  const percentGain = openBalance > 0 ? (pnl / openBalance) * 100 : 0
   const closeBalance = openBalance + pnl
   const rrAchieved = riskDollar > 0 ? pnl / riskDollar : 0
-  const targetHit = pnl >= targetDollar
-  const cumulativePnL = pnl // This will be calculated across all trades in the component
+  const targetHit = pnl >= targetDollar && riskDollar > 0
 
   return {
     riskDollar: Math.round(riskDollar * 100) / 100,
     targetDollar: Math.round(targetDollar * 100) / 100,
-    percentGainLoss: Math.round(percentGainLoss * 100) / 100,
+    percentGain: Math.round(percentGain * 100) / 100,
     closeBalance: Math.round(closeBalance * 100) / 100,
     rrAchieved: Math.round(rrAchieved * 100) / 100,
     targetHit,
-    cumulativePnL
+    cumulativePnL: pnl // This will be calculated across all trades in the component
   }
 }
 
@@ -34,7 +46,7 @@ export const recalculateBalances = (trades, startingBalance) => {
   
   // Sort trades by date and time (if multiple on same day, keep original order)
   const sortedTrades = [...trades].sort((a, b) => {
-    const dateCompare = new Date(a.date).getTime() - new Date(b.date).getTime()
+    const dateCompare = parseDateLocal(a.date).getTime() - parseDateLocal(b.date).getTime()
     if (dateCompare !== 0) return dateCompare
     // If same date, use ID to maintain order
     return (a.id || '').localeCompare(b.id || '')
@@ -57,8 +69,7 @@ export const recalculateBalances = (trades, startingBalance) => {
 }
 
 export const getDayName = (dateString) => {
-  const date = parseISO(dateString)
-  return format(date, 'EEE')
+  return format(parseDateLocal(dateString), 'EEE')
 }
 
 export const formatCurrency = (amount) => {

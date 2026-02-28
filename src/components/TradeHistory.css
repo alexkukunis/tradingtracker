@@ -58,6 +58,113 @@
   font-size: 18px;
 }
 
+/* Filters Section */
+.history-filters {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-xl);
+  padding: 1.5rem;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 1.5rem;
+}
+
+.filters-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  align-items: end;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.filter-group.filter-search {
+  grid-column: span 2;
+}
+
+@media (max-width: 768px) {
+  .filter-group.filter-search {
+    grid-column: span 1;
+  }
+}
+
+.filter-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.filter-label .material-icons {
+  font-size: 18px;
+  color: var(--accent-primary);
+}
+
+.filter-select,
+.filter-input {
+  padding: 0.625rem 0.875rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.filter-select:focus,
+.filter-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.1);
+  background: var(--bg-elevated);
+}
+
+.filter-input {
+  cursor: text;
+}
+
+.filter-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.filter-results-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-light);
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.clear-filters-button {
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.clear-filters-button:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
 /* Desktop Table View */
 .desktop-view {
   display: block;
@@ -138,6 +245,12 @@
   transform: translateX(2px);
 }
 
+/* Prevent row hover effect when dropdown is open or being hovered */
+.trade-table tbody tr.clickable-row.dropdown-open:hover {
+  background: transparent;
+  transform: none;
+}
+
 .trade-table tbody tr.win-row {
   border-left: 3px solid var(--accent-success);
 }
@@ -161,6 +274,72 @@
 .date-secondary {
   font-size: 0.75rem;
   color: var(--text-tertiary);
+}
+
+/* Instrument / Side badges in table cell */
+.instrument-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.instrument-badge {
+  background: rgba(99, 91, 255, 0.12);
+  color: var(--accent-primary);
+  border: 1px solid rgba(99, 91, 255, 0.25);
+  border-radius: var(--radius-sm);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.instrument-badge.lg {
+  font-size: 0.8125rem;
+  padding: 0.25rem 0.625rem;
+}
+
+.side-badge {
+  border-radius: var(--radius-sm);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.4rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.side-badge.buy {
+  background: rgba(0, 217, 165, 0.12);
+  color: var(--accent-success);
+  border: 1px solid rgba(0, 217, 165, 0.25);
+}
+
+.side-badge.sell {
+  background: rgba(255, 68, 68, 0.12);
+  color: var(--accent-danger);
+  border: 1px solid rgba(255, 68, 68, 0.25);
+}
+
+.side-badge.lg {
+  font-size: 0.8125rem;
+  padding: 0.25rem 0.6rem;
+}
+
+.volume-text {
+  font-size: 0.7rem;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.order-type-text {
+  font-size: 0.7rem;
+  color: var(--text-tertiary);
+  white-space: nowrap;
 }
 
 .balance-cell {
@@ -242,11 +421,26 @@
   color: var(--accent-success);
 }
 
+.result-badge.negative.crushed {
+  background: rgba(255, 68, 68, 0.15);
+  border-color: var(--accent-danger);
+  color: var(--accent-danger);
+}
+
+.result-badge.positive .material-icons {
+  color: var(--accent-success);
+}
+
+.result-badge.negative .material-icons {
+  color: var(--accent-danger);
+}
+
 /* Action Dropdown */
 .action-dropdown {
   position: relative;
   display: inline-block;
   z-index: 10;
+  isolation: isolate;
 }
 
 .dropdown-toggle {
@@ -292,6 +486,7 @@
   visibility: visible !important;
   opacity: 1 !important;
   pointer-events: auto;
+  isolation: isolate;
 }
 
 @keyframes slideDown {
@@ -335,6 +530,130 @@
 
 .dropdown-item .material-icons {
   font-size: 18px;
+}
+
+/* Mobile TL instrument header */
+.tl-card-instrument {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin: 0.35rem 0 0.25rem;
+}
+
+/* Mobile TL entry/exit price strip */
+.tl-card-prices {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.625rem 0.875rem;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  margin-bottom: 0.875rem;
+  font-size: 0.8125rem;
+}
+
+.tl-price-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.tl-price-label {
+  font-size: 0.65rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tl-price-value {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+.tl-price-value.sl {
+  color: var(--accent-danger);
+}
+
+.tl-price-value.tp {
+  color: var(--accent-success);
+}
+
+.tl-price-arrow {
+  color: var(--text-tertiary);
+  font-size: 1rem;
+  line-height: 1;
+  margin-top: 0.75rem;
+}
+
+/* ── Mobile card: Order ID / Position ID strip ──────────────────────────── */
+.tl-card-ids {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  margin-bottom: 0.75rem;
+}
+
+.tl-card-id-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  overflow: hidden;
+}
+
+.tl-card-id-label {
+  font-size: 0.65rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  flex-shrink: 0;
+  width: 6rem;
+}
+
+.tl-card-id-value {
+  font-size: 0.72rem;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+/* ── Desktop table: Order ID / Position ID below instrument badge ────────── */
+.tl-table-ids {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 0.35rem;
+}
+
+.tl-table-id-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.tl-table-id-label {
+  font-size: 0.6rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  flex-shrink: 0;
+  width: 2.8rem;
+}
+
+.tl-table-id-value {
+  font-size: 0.68rem;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  color: var(--text-secondary);
+  word-break: break-all;
 }
 
 /* Trade Details Modal */
@@ -561,6 +880,14 @@
 
 .result-badge-mobile .material-icons {
   font-size: 16px;
+}
+
+.result-badge-mobile.positive .material-icons {
+  color: var(--accent-success);
+}
+
+.result-badge-mobile.negative .material-icons {
+  color: var(--accent-danger);
 }
 
 .trade-card-body-mobile {

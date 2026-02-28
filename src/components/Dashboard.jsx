@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react'
-import { format, parseISO, isSameDay } from 'date-fns'
-import { calculateTradeMetrics, getDayName, formatCurrency, getResultMessage, getResultIcon } from '../utils/calculations'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import { format, isSameDay } from 'date-fns'
+import { toast } from 'sonner'
+import { calculateTradeMetrics, getDayName, formatCurrency, getResultMessage, getResultIcon, parseDateLocal, recalculateBalances } from '../utils/calculations'
 import Modal from './Modal'
 import './Dashboard.css'
 
@@ -12,15 +13,22 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
     pnl: '',
     notes: ''
   })
+  const [tradeEntries, setTradeEntries] = useState([
+    { pnl: '', notes: '' }
+  ])
 
-  const openModal = (trade = null) => {
+  const openModal = useCallback((trade = null) => {
     if (trade) {
       setEditingTrade(trade)
+      // Convert date to YYYY-MM-DD format for date input
+      const tradeDate = parseDateLocal(trade.date)
+      const formattedDate = format(tradeDate, 'yyyy-MM-dd')
       setFormData({
-        date: trade.date,
+        date: formattedDate,
         pnl: trade.pnl.toString(),
         notes: trade.notes || ''
       })
+      setTradeEntries([{ pnl: trade.pnl.toString(), notes: trade.notes || '' }])
     } else {
       setEditingTrade(null)
       setFormData({
@@ -28,9 +36,10 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
         pnl: '',
         notes: ''
       })
+      setTradeEntries([{ pnl: '', notes: '' }])
     }
     setIsModalOpen(true)
-  }
+  }, [])
 
   const closeModal = () => {
     setIsModalOpen(false)
@@ -40,23 +49,70 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
       pnl: '',
       notes: ''
     })
+    setTradeEntries([{ pnl: '', notes: '' }])
   }
 
-  const getOpenBalance = (selectedDate, selectedTime = null) => {
-    if (trades.length === 0) return settings.startingBalance
+  // Keyboard shortcut handler
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      // Only trigger if not typing in an input/textarea
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        return
+      }
+      
+      // Press 'a' to open add trade modal
+      if ((e.key === 'a' || e.key === 'A') && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault()
+        if (!isModalOpen) {
+          openModal(null)
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyPress)
+    return () => window.removeEventListener('keydown', handleKeyPress)
+  }, [isModalOpen, openModal])
+
+  // Recalculate all trade metrics with current settings
+  const tradesWithMetrics = useMemo(() => {
+    if (!trades || trades.length === 0) return []
     
-    const selectedDateObj = parseISO(selectedDate)
+    // First, recalculate balances in chronological order
+    const tradesWithBalances = recalculateBalances(trades, settings.startingBalance)
+    
+    // Then recalculate metrics for each trade with current settings
+    return tradesWithBalances.map(trade => {
+      const metrics = calculateTradeMetrics(
+        trade.pnl,
+        trade.openBalance,
+        settings.riskPercent,
+        settings.riskReward
+      )
+      
+      return {
+        ...trade,
+        ...metrics,
+        result: getResultMessage(metrics.targetHit, trade.pnl),
+        riskReward: settings.riskReward // Store the risk:reward ratio for R:R display
+      }
+    })
+  }, [trades, settings.startingBalance, settings.riskPercent, settings.riskReward])
+
+  const getOpenBalance = useCallback((selectedDate, selectedTime = null) => {
+    if (tradesWithMetrics.length === 0) return settings.startingBalance
+    
+    const selectedDateObj = parseDateLocal(selectedDate)
     
     // Get all trades before this date/time
-    const sortedTrades = [...trades]
+    const sortedTrades = [...tradesWithMetrics]
       .filter(t => {
-        const tradeDate = new Date(t.date)
+        const tradeDate = parseDateLocal(t.date)
         if (tradeDate < selectedDateObj) return true
         if (tradeDate.getTime() === selectedDateObj.getTime() && selectedTime && t.id && t.id < selectedTime) return true
         return false
       })
       .sort((a, b) => {
-        const dateCompare = new Date(a.date).getTime() - new Date(b.date).getTime()
+        const dateCompare = parseDateLocal(a.date).getTime() - parseDateLocal(b.date).getTime()
         if (dateCompare !== 0) return dateCompare
         return (a.id || '').localeCompare(b.id || '')
       })
@@ -65,12 +121,103 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
     
     const lastTrade = sortedTrades[sortedTrades.length - 1]
     return lastTrade.closeBalance || settings.startingBalance
-  }
+  }, [tradesWithMetrics, settings.startingBalance])
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    const pnl = parseFloat(formData.pnl) || 0
-    const tradeId = editingTrade?.id || `${formData.date}-${Date.now()}-${Math.random()}`
+    
+    // Check if we have multiple entries or single entry
+    const hasMultipleEntries = tradeEntries.length > 1 || (tradeEntries.length === 1 && tradeEntries[0].pnl && tradeEntries[0].pnl.trim() !== '')
+    const validEntries = tradeEntries.filter(entry => entry.pnl && entry.pnl.trim() !== '')
+    
+    if (validEntries.length === 0) {
+      toast.error('Please add at least one trade entry')
+      return
+    }
+
+    // If editing, only update the first entry
+    if (editingTrade && validEntries.length > 0) {
+      const entry = validEntries[0]
+      const pnl = parseFloat(entry.pnl) || 0
+      const tradeId = editingTrade.id
+      const openBalance = getOpenBalance(formData.date, tradeId)
+      
+      const metrics = calculateTradeMetrics(
+        pnl,
+        openBalance,
+        settings.riskPercent,
+        settings.riskReward
+      )
+
+      const { cumulativePnL, ...metricsWithoutCumulative } = metrics
+
+      const tradeData = {
+        date: formData.date,
+        day: getDayName(formData.date),
+        pnl: Math.round(pnl * 100) / 100,
+        openBalance: Math.round(openBalance * 100) / 100,
+        ...metricsWithoutCumulative,
+        notes: entry.notes || '',
+        result: getResultMessage(metrics.targetHit, pnl)
+      }
+
+      onUpdateTrade(editingTrade.id, tradeData)
+      closeModal()
+      return
+    }
+
+    // Handle multiple entries submission
+    if (validEntries.length > 1) {
+      // Calculate trades in sequence for the same date
+      let currentBalance = getOpenBalance(formData.date)
+      const tradesToAdd = []
+
+      for (const entry of validEntries) {
+        const pnl = parseFloat(entry.pnl) || 0
+        const tradeId = `${formData.date}-${Date.now()}-${Math.random()}`
+        const openBalance = currentBalance
+        
+        const metrics = calculateTradeMetrics(
+          pnl,
+          openBalance,
+          settings.riskPercent,
+          settings.riskReward
+        )
+
+        const { cumulativePnL, ...metricsWithoutCumulative } = metrics
+
+        const tradeData = {
+          id: tradeId,
+          date: formData.date,
+          day: getDayName(formData.date),
+          pnl: Math.round(pnl * 100) / 100,
+          openBalance: Math.round(openBalance * 100) / 100,
+          ...metricsWithoutCumulative,
+          notes: entry.notes || '',
+          result: getResultMessage(metrics.targetHit, pnl)
+        }
+
+        tradesToAdd.push(tradeData)
+        currentBalance = metrics.closeBalance
+      }
+
+      // Add all trades sequentially
+      try {
+        for (const tradeData of tradesToAdd) {
+          await onAddTrade(tradeData)
+        }
+        toast.success(`${tradesToAdd.length} trades added successfully!`)
+        closeModal()
+      } catch (error) {
+        // Error already handled in onAddTrade
+      }
+      return
+    }
+
+    // Single trade submission
+    const entry = validEntries[0]
+    const pnl = parseFloat(entry.pnl) || 0
+    const tradeId = `${formData.date}-${Date.now()}-${Math.random()}`
     const openBalance = getOpenBalance(formData.date, tradeId)
     
     const metrics = calculateTradeMetrics(
@@ -80,28 +227,41 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
       settings.riskReward
     )
 
+    const { cumulativePnL, ...metricsWithoutCumulative } = metrics
+
     const tradeData = {
       id: tradeId,
       date: formData.date,
       day: getDayName(formData.date),
       pnl: Math.round(pnl * 100) / 100,
       openBalance: Math.round(openBalance * 100) / 100,
-      ...metrics,
-      notes: formData.notes,
+      ...metricsWithoutCumulative,
+      notes: entry.notes || '',
       result: getResultMessage(metrics.targetHit, pnl)
     }
 
-    if (editingTrade) {
-      onUpdateTrade(editingTrade.id, tradeData)
-    } else {
-      onAddTrade(tradeData)
-    }
-
+    onAddTrade(tradeData)
     closeModal()
   }
 
+  const addTradeEntry = () => {
+    setTradeEntries([...tradeEntries, { pnl: '', notes: '' }])
+  }
+
+  const removeTradeEntry = (index) => {
+    if (tradeEntries.length > 1) {
+      setTradeEntries(tradeEntries.filter((_, i) => i !== index))
+    }
+  }
+
+  const updateTradeEntry = (index, field, value) => {
+    const updated = [...tradeEntries]
+    updated[index] = { ...updated[index], [field]: value }
+    setTradeEntries(updated)
+  }
+
   const calculateStats = () => {
-    if (trades.length === 0) {
+    if (tradesWithMetrics.length === 0) {
       return {
         totalPnL: 0,
         totalPercent: 0,
@@ -118,17 +278,24 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
       }
     }
 
-    const wins = trades.filter(t => t.pnl > 0)
-    const losses = trades.filter(t => t.pnl < 0)
-    const totalPnL = trades.reduce((sum, t) => sum + t.pnl, 0)
+    // Sort trades by date to ensure correct order
+    const sortedTrades = [...tradesWithMetrics].sort((a, b) => {
+      const dateCompare = parseDateLocal(a.date).getTime() - parseDateLocal(b.date).getTime()
+      if (dateCompare !== 0) return dateCompare
+      return (a.id || '').localeCompare(b.id || '')
+    })
+
+    const wins = sortedTrades.filter(t => t.pnl > 0)
+    const losses = sortedTrades.filter(t => t.pnl < 0)
+    const totalPnL = sortedTrades.reduce((sum, t) => sum + t.pnl, 0)
     const startingBalance = settings.startingBalance
-    const currentBalance = trades.length > 0 
-      ? trades[trades.length - 1].closeBalance 
+    const currentBalance = sortedTrades.length > 0 
+      ? sortedTrades[sortedTrades.length - 1].closeBalance 
       : startingBalance
     const totalPercent = ((currentBalance - startingBalance) / startingBalance) * 100
 
-    const bestDay = [...trades].sort((a, b) => b.pnl - a.pnl)[0]
-    const worstDay = [...trades].sort((a, b) => a.pnl - b.pnl)[0]
+    const bestDay = [...sortedTrades].sort((a, b) => b.pnl - a.pnl)[0]
+    const worstDay = [...sortedTrades].sort((a, b) => a.pnl - b.pnl)[0]
 
     const totalWins = wins.reduce((sum, t) => sum + t.pnl, 0)
     const totalLosses = Math.abs(losses.reduce((sum, t) => sum + t.pnl, 0))
@@ -137,13 +304,13 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
     return {
       totalPnL,
       totalPercent,
-      winRate: trades.length > 0 ? (wins.length / trades.length) * 100 : 0,
+      winRate: sortedTrades.length > 0 ? (wins.length / sortedTrades.length) * 100 : 0,
       avgWin: wins.length > 0 ? wins.reduce((sum, t) => sum + t.pnl, 0) / wins.length : 0,
       avgLoss: losses.length > 0 ? losses.reduce((sum, t) => sum + t.pnl, 0) / losses.length : 0,
       bestDay,
       worstDay,
       currentBalance,
-      totalTrades: trades.length,
+      totalTrades: sortedTrades.length,
       wins: wins.length,
       losses: losses.length,
       profitFactor
@@ -154,7 +321,7 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
   const openBalance = getOpenBalance(formData.date)
 
   // Get today's trades
-  const todayTrades = trades.filter(t => isSameDay(parseISO(t.date), new Date()))
+  const todayTrades = tradesWithMetrics.filter(t => isSameDay(parseDateLocal(t.date), new Date()))
 
   return (
     <div className="dashboard-container">
@@ -166,6 +333,7 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
         <button className="add-trade-button" onClick={() => openModal()}>
           <span className="material-icons">add</span>
           Add Trade
+          <span style={{ fontSize: '0.75rem', opacity: 0.7, marginLeft: '0.25rem' }}>(A)</span>
         </button>
       </div>
 
@@ -250,7 +418,7 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
               <span className="stat-label">Best Day</span>
             </div>
             <div className="stat-value positive">{formatCurrency(stats.bestDay.pnl)}</div>
-            <div className="stat-meta">{format(parseISO(stats.bestDay.date), 'MMM d, yyyy')}</div>
+            <div className="stat-meta">{stats.bestDay.date ? format(parseDateLocal(stats.bestDay.date), 'MMM d, yyyy') : '—'}</div>
           </div>
         )}
 
@@ -263,7 +431,7 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
               <span className="stat-label">Worst Day</span>
             </div>
             <div className="stat-value negative">{formatCurrency(stats.worstDay.pnl)}</div>
-            <div className="stat-meta">{format(parseISO(stats.worstDay.date), 'MMM d, yyyy')}</div>
+            <div className="stat-meta">{stats.worstDay.date ? format(parseDateLocal(stats.worstDay.date), 'MMM d, yyyy') : '—'}</div>
           </div>
         )}
       </div>
@@ -277,10 +445,9 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
                 <div className="trade-card-header">
                   <div className="trade-date">
                     <span className="material-icons">schedule</span>
-                    Trade #{idx + 1}
+                    <span>#{idx + 1}</span>
                   </div>
                   <span className={`trade-result-badge ${trade.pnl >= 0 ? 'positive' : 'negative'}`}>
-                    <span className="material-icons">{getResultIcon(trade.targetHit, trade.pnl)}</span>
                     {trade.result}
                   </span>
                 </div>
@@ -293,17 +460,13 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
                   <div className="trade-metrics-row">
                     <div className="trade-metric">
                       <span className="metric-label">%</span>
-                      <span className={`metric-value ${trade.percentGainLoss >= 0 ? 'positive' : 'negative'}`}>
-                        {trade.percentGainLoss.toFixed(2)}%
+                      <span className={`metric-value ${trade.percentGain >= 0 ? 'positive' : 'negative'}`}>
+                        {trade.percentGain.toFixed(2)}%
                       </span>
                     </div>
                     <div className="trade-metric">
                       <span className="metric-label">R:R</span>
                       <span className="metric-value">{trade.rrAchieved.toFixed(2)}x</span>
-                    </div>
-                    <div className="trade-metric">
-                      <span className="metric-label">Balance</span>
-                      <span className="metric-value">{formatCurrency(trade.closeBalance)}</span>
                     </div>
                   </div>
                 </div>
@@ -313,12 +476,12 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
         </div>
       )}
 
-      {trades.length > 0 && (
+      {tradesWithMetrics.length > 0 && (
         <div className="recent-trades">
           <h2 className="section-title">Recent Trades</h2>
           <div className="trades-list">
-            {[...trades].sort((a, b) => {
-              const dateCompare = new Date(b.date).getTime() - new Date(a.date).getTime()
+            {[...tradesWithMetrics].sort((a, b) => {
+              const dateCompare = parseDateLocal(b.date).getTime() - parseDateLocal(a.date).getTime()
               if (dateCompare !== 0) return dateCompare
               return (b.id || '').localeCompare(a.id || '')
             }).slice(0, 5).map((trade, idx) => (
@@ -326,10 +489,9 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
                 <div className="trade-card-header">
                   <div className="trade-date">
                     <span className="material-icons">calendar_today</span>
-                    {format(parseISO(trade.date), 'MMM d, yyyy')}
+                    <span>{format(parseDateLocal(trade.date), 'MMM d')}</span>
                   </div>
                   <span className={`trade-result-badge ${trade.pnl >= 0 ? 'positive' : 'negative'}`}>
-                    <span className="material-icons">{getResultIcon(trade.targetHit, trade.pnl)}</span>
                     {trade.result}
                   </span>
                 </div>
@@ -342,17 +504,13 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
                   <div className="trade-metrics-row">
                     <div className="trade-metric">
                       <span className="metric-label">%</span>
-                      <span className={`metric-value ${trade.percentGainLoss >= 0 ? 'positive' : 'negative'}`}>
-                        {trade.percentGainLoss.toFixed(2)}%
+                      <span className={`metric-value ${trade.percentGain >= 0 ? 'positive' : 'negative'}`}>
+                        {trade.percentGain.toFixed(2)}%
                       </span>
                     </div>
                     <div className="trade-metric">
                       <span className="metric-label">R:R</span>
                       <span className="metric-value">{trade.rrAchieved.toFixed(2)}x</span>
-                    </div>
-                    <div className="trade-metric">
-                      <span className="metric-label">Balance</span>
-                      <span className="metric-value">{formatCurrency(trade.closeBalance)}</span>
                     </div>
                   </div>
                 </div>
@@ -365,95 +523,110 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
       <Modal
         isOpen={isModalOpen}
         onClose={closeModal}
-        title={editingTrade ? 'Edit Trade' : 'Add New Trade'}
+        title={editingTrade ? 'Edit Trade' : 'Add Trade' + (tradeEntries.length > 1 ? ` (${tradeEntries.length} entries)` : '')}
         size="medium"
       >
-        <form onSubmit={handleSubmit} className="trade-form">
-          <div className="form-row">
-            <div className="form-field">
-              <label>Date</label>
-              <input
-                type="date"
-                value={formData.date}
-                onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                className="form-input"
-                required
-              />
-            </div>
-            <div className="form-field">
-              <label>P&L ($)</label>
-              <input
-                type="number"
-                value={formData.pnl}
-                onChange={(e) => setFormData({ ...formData, pnl: e.target.value })}
-                step="0.01"
-                className="form-input"
-                placeholder="146.48"
-                required
-              />
-            </div>
-          </div>
-
-          <div className="form-field">
-            <label>Notes (Optional)</label>
-            <textarea
-              value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              className="form-textarea"
-              placeholder="Add any notes about this trade..."
-              rows="3"
+        <form onSubmit={handleSubmit} className="trade-form-compact">
+          <div className="compact-date-row">
+            <input
+              type="date"
+              value={formData.date}
+              onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+              className="compact-date-input"
+              required
             />
+            {tradeEntries.length > 1 && (
+              <span className="compact-date-hint">{tradeEntries.length} trades</span>
+            )}
           </div>
 
-          {formData.pnl && (
-            <div className="preview-section">
-              <h3 className="preview-title">Preview</h3>
-              <div className="preview-grid">
-                <div className="preview-item">
-                  <span className="preview-label">Open Balance:</span>
-                  <span className="preview-value">{formatCurrency(openBalance)}</span>
-                </div>
-                <div className="preview-item">
-                  <span className="preview-label">Close Balance:</span>
-                  <span className="preview-value">
-                    {formatCurrency(openBalance + (parseFloat(formData.pnl) || 0))}
-                  </span>
-                </div>
-                <div className="preview-item">
-                  <span className="preview-label">% Gain/Loss:</span>
-                  <span className={`preview-value ${parseFloat(formData.pnl) >= 0 ? 'positive' : 'negative'}`}>
-                    {(((parseFloat(formData.pnl) || 0) / openBalance) * 100).toFixed(2)}%
-                  </span>
-                </div>
-                <div className="preview-item">
-                  <span className="preview-label">Risk $:</span>
-                  <span className="preview-value">
-                    {formatCurrency((openBalance * settings.riskPercent) / 100)}
-                  </span>
-                </div>
-                <div className="preview-item">
-                  <span className="preview-label">Target $:</span>
-                  <span className="preview-value">
-                    {formatCurrency((openBalance * settings.riskPercent * settings.riskReward) / 100)}
-                  </span>
-                </div>
-              </div>
-              {parseFloat(formData.pnl) >= (openBalance * settings.riskPercent * settings.riskReward) / 100 && (
-                <div className="target-hit">
-                  <span className="material-icons">celebration</span>
-                  Target Achieved!
-                </div>
-              )}
-            </div>
-          )}
+          <div className="compact-trades-list">
+            {tradeEntries.map((entry, index) => {
+              const entryPnl = parseFloat(entry.pnl) || 0
+              let entryOpenBalance = getOpenBalance(formData.date)
+              
+              if (!editingTrade) {
+                for (let i = 0; i < index; i++) {
+                  const prevPnl = parseFloat(tradeEntries[i].pnl) || 0
+                  entryOpenBalance += prevPnl
+                }
+              } else {
+                entryOpenBalance = getOpenBalance(formData.date, editingTrade.id)
+              }
+              
+              const entryMetrics = entryPnl ? calculateTradeMetrics(
+                entryPnl,
+                entryOpenBalance,
+                settings.riskPercent,
+                settings.riskReward
+              ) : null
 
-          <div className="form-actions">
-            <button type="button" className="button-secondary" onClick={closeModal}>
+              return (
+                <div key={index} className="compact-trade-row">
+                  <div className="compact-trade-main">
+                    <div className="compact-input-group">
+                      <input
+                        type="number"
+                        value={entry.pnl}
+                        onChange={(e) => updateTradeEntry(index, 'pnl', e.target.value)}
+                        step="0.01"
+                        className="compact-pnl-input"
+                        placeholder="P&L"
+                        required
+                        autoFocus={index === 0 && !editingTrade && tradeEntries.length === 1}
+                      />
+                      <input
+                        type="text"
+                        value={entry.notes}
+                        onChange={(e) => updateTradeEntry(index, 'notes', e.target.value)}
+                        className="compact-notes-input"
+                        placeholder="Notes (optional)"
+                      />
+                    </div>
+                    {entryMetrics && (
+                      <div className="compact-preview">
+                        <span className={`compact-return ${entryPnl >= 0 ? 'positive' : 'negative'}`}>
+                          {entryPnl >= 0 ? '+' : ''}{entryMetrics.percentGain.toFixed(2)}%
+                        </span>
+                        {entryMetrics.targetHit && (
+                          <span className="compact-target-badge" title="Target Hit">
+                            <span className="material-icons">check_circle</span>
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {tradeEntries.length > 1 && (
+                      <button
+                        type="button"
+                        className="compact-remove-btn"
+                        onClick={() => removeTradeEntry(index)}
+                        title="Remove"
+                      >
+                        <span className="material-icons">close</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+            
+            <button 
+              type="button" 
+              className="compact-add-btn" 
+              onClick={addTradeEntry}
+              title="Add another trade"
+            >
+              <span className="material-icons">add</span>
+              <span>Add Trade</span>
+            </button>
+          </div>
+
+          <div className="compact-actions">
+            <button type="button" className="btn-secondary-compact" onClick={closeModal}>
               Cancel
             </button>
-            <button type="submit" className="button-primary">
-              <span className="material-icons">{editingTrade ? 'save' : 'add'}</span>
-              {editingTrade ? 'Update Trade' : 'Add Trade'}
+            <button type="submit" className="btn-primary-compact">
+              {editingTrade ? 'Update' : `Add ${tradeEntries.filter(e => e.pnl && e.pnl.trim() !== '').length || tradeEntries.length} Trade${tradeEntries.filter(e => e.pnl && e.pnl.trim() !== '').length !== 1 ? 's' : ''}`}
             </button>
           </div>
         </form>

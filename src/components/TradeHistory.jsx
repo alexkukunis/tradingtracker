@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react'
 import { format } from 'date-fns'
-import { formatCurrency, calculateCumulativePnL, getResultIcon, calculateTradeMetrics, getDayName, getResultMessage, parseDateLocal } from '../utils/calculations'
+import { formatCurrency, calculateCumulativePnL, getResultIcon, calculateTradeMetrics, getDayName, getResultMessage, parseDateLocal, recalculateBalances } from '../utils/calculations'
 import Modal from './Modal'
 import './TradeHistory.css'
 
@@ -52,22 +52,95 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [tradeToDelete, setTradeToDelete] = useState(null)
   const [openDropdownId, setOpenDropdownId] = useState(null)
+  const [hoveredDropdownId, setHoveredDropdownId] = useState(null)
   const dropdownRefs = useRef({})
   const [formData, setFormData] = useState({
     date: '',
     pnl: '',
     notes: ''
   })
+  
+  // Filter states
+  const [sortOrder, setSortOrder] = useState('newest') // 'newest' or 'oldest'
+  const [filterWinLoss, setFilterWinLoss] = useState('all') // 'all', 'wins', 'losses'
+  const [filterResult, setFilterResult] = useState('all') // 'all', 'crushed', 'hit', 'missed'
+  const [searchTerm, setSearchTerm] = useState('')
+
+  // Recalculate all trade metrics with current settings
+  const tradesWithMetrics = useMemo(() => {
+    if (!trades || trades.length === 0) return []
+    
+    // First, recalculate balances in chronological order
+    const tradesWithBalances = recalculateBalances(trades, settings.startingBalance)
+    
+    // Then recalculate metrics for each trade with current settings
+    return tradesWithBalances.map(trade => {
+      const metrics = calculateTradeMetrics(
+        trade.pnl,
+        trade.openBalance,
+        settings.riskPercent,
+        settings.riskReward
+      )
+      
+      return {
+        ...trade,
+        ...metrics,
+        result: getResultMessage(metrics.targetHit, trade.pnl),
+        riskReward: settings.riskReward // Store the risk:reward ratio for R:R display
+      }
+    })
+  }, [trades, settings.startingBalance, settings.riskPercent, settings.riskReward])
 
   const sortedTrades = useMemo(() => {
-    return [...trades].sort((a, b) => {
-      const dateCompare = parseDateLocal(a.date).getTime() - parseDateLocal(b.date).getTime()
-      if (dateCompare !== 0) return dateCompare
-      return (a.id || '').localeCompare(b.id || '')
+    let filtered = [...tradesWithMetrics]
+    
+    // Apply win/loss filter
+    if (filterWinLoss === 'wins') {
+      filtered = filtered.filter(t => t.pnl > 0)
+    } else if (filterWinLoss === 'losses') {
+      filtered = filtered.filter(t => t.pnl < 0)
+    }
+    
+    // Apply result filter
+    if (filterResult === 'crushed') {
+      // Target Achieved (targetHit && pnl > 0)
+      filtered = filtered.filter(t => t.targetHit && t.pnl > 0)
+    } else if (filterResult === 'hit') {
+      // Win but didn't hit target (pnl > 0 && !targetHit)
+      filtered = filtered.filter(t => t.pnl > 0 && !t.targetHit)
+    } else if (filterResult === 'missed') {
+      // Loss or breakeven (!targetHit || pnl <= 0)
+      filtered = filtered.filter(t => !t.targetHit || t.pnl <= 0)
+    }
+    
+    // Apply search filter (search in notes and instrument)
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase()
+      filtered = filtered.filter(t => {
+        const notesMatch = (t.notes || '').toLowerCase().includes(searchLower)
+        const tlData = t.tradelockerTradeId ? parseTradeLockerNotes(t.notes) : null
+        const instrumentMatch = tlData?.instrument?.toLowerCase().includes(searchLower)
+        return notesMatch || instrumentMatch
+      })
+    }
+    
+    // Sort by date
+    filtered.sort((a, b) => {
+      const dateCompare = parseDateLocal(b.date).getTime() - parseDateLocal(a.date).getTime()
+      if (dateCompare !== 0) {
+        return sortOrder === 'newest' ? dateCompare : -dateCompare
+      }
+      return sortOrder === 'newest' 
+        ? (b.id || '').localeCompare(a.id || '')
+        : (a.id || '').localeCompare(b.id || '')
     })
-  }, [trades])
+    
+    return filtered
+  }, [tradesWithMetrics, sortOrder, filterWinLoss, filterResult, searchTerm])
 
   const tradesWithCumulative = useMemo(() => {
+    // Calculate cumulative PnL based on filtered/sorted trades
+    // But we need to maintain proper balance calculation
     return calculateCumulativePnL(sortedTrades)
   }, [sortedTrades])
 
@@ -210,6 +283,114 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
     )
   }
 
+  if (sortedTrades.length === 0) {
+    return (
+      <div className="history-container">
+        <div className="history-header">
+          <h2>
+            <span className="material-icons">history</span>
+            Trade History
+          </h2>
+          <div className="history-actions">
+            <button onClick={onClearAll} className="clear-button">
+              <span className="material-icons">delete_sweep</span>
+              Clear All Data
+            </button>
+          </div>
+        </div>
+
+        {/* Filters Section */}
+        <div className="history-filters">
+          <div className="filters-row">
+            <div className="filter-group">
+              <label className="filter-label">
+                <span className="material-icons">sort</span>
+                Sort Order
+              </label>
+              <select 
+                value={sortOrder} 
+                onChange={(e) => setSortOrder(e.target.value)}
+                className="filter-select"
+              >
+                <option value="newest">Newest First</option>
+                <option value="oldest">Oldest First</option>
+              </select>
+            </div>
+
+            <div className="filter-group">
+              <label className="filter-label">
+                <span className="material-icons">filter_list</span>
+                Win/Loss
+              </label>
+              <select 
+                value={filterWinLoss} 
+                onChange={(e) => setFilterWinLoss(e.target.value)}
+                className="filter-select"
+              >
+                <option value="all">All Trades</option>
+                <option value="wins">Wins Only</option>
+                <option value="losses">Losses Only</option>
+              </select>
+            </div>
+
+            <div className="filter-group">
+              <label className="filter-label">
+                <span className="material-icons">flag</span>
+                Result
+              </label>
+              <select 
+                value={filterResult} 
+                onChange={(e) => setFilterResult(e.target.value)}
+                className="filter-select"
+              >
+                <option value="all">All Results</option>
+                <option value="crushed">Target Achieved</option>
+                <option value="hit">Wins (No Target)</option>
+                <option value="missed">Losses</option>
+              </select>
+            </div>
+
+            <div className="filter-group filter-search">
+              <label className="filter-label">
+                <span className="material-icons">search</span>
+                Search
+              </label>
+              <input
+                type="text"
+                placeholder="Search notes or instrument..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="filter-input"
+              />
+            </div>
+          </div>
+
+          <div className="filter-results-info">
+            Showing 0 of {trades.length} trades
+            <button 
+              onClick={() => {
+                setFilterWinLoss('all')
+                setFilterResult('all')
+                setSearchTerm('')
+              }}
+              className="clear-filters-button"
+            >
+              Clear Filters
+            </button>
+          </div>
+        </div>
+
+        <div className="empty-state">
+          <div className="empty-icon">
+            <span className="material-icons">filter_alt_off</span>
+          </div>
+          <h2>No Trades Match Your Filters</h2>
+          <p>Try adjusting your filters to see more trades.</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="history-container">
       <div className="history-header">
@@ -223,6 +404,89 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
             Clear All Data
           </button>
         </div>
+      </div>
+
+      {/* Filters Section */}
+      <div className="history-filters">
+        <div className="filters-row">
+          <div className="filter-group">
+            <label className="filter-label">
+              <span className="material-icons">sort</span>
+              Sort Order
+            </label>
+            <select 
+              value={sortOrder} 
+              onChange={(e) => setSortOrder(e.target.value)}
+              className="filter-select"
+            >
+              <option value="newest">Newest First</option>
+              <option value="oldest">Oldest First</option>
+            </select>
+          </div>
+
+          <div className="filter-group">
+            <label className="filter-label">
+              <span className="material-icons">filter_list</span>
+              Win/Loss
+            </label>
+            <select 
+              value={filterWinLoss} 
+              onChange={(e) => setFilterWinLoss(e.target.value)}
+              className="filter-select"
+            >
+              <option value="all">All Trades</option>
+              <option value="wins">Wins Only</option>
+              <option value="losses">Losses Only</option>
+            </select>
+          </div>
+
+          <div className="filter-group">
+            <label className="filter-label">
+              <span className="material-icons">flag</span>
+              Result
+            </label>
+            <select 
+              value={filterResult} 
+              onChange={(e) => setFilterResult(e.target.value)}
+              className="filter-select"
+            >
+              <option value="all">All Results</option>
+              <option value="crushed">Target Achieved</option>
+              <option value="hit">Wins (No Target)</option>
+              <option value="missed">Losses</option>
+            </select>
+          </div>
+
+          <div className="filter-group filter-search">
+            <label className="filter-label">
+              <span className="material-icons">search</span>
+              Search
+            </label>
+            <input
+              type="text"
+              placeholder="Search notes or instrument..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="filter-input"
+            />
+          </div>
+        </div>
+
+        {sortedTrades.length !== trades.length && (
+          <div className="filter-results-info">
+            Showing {sortedTrades.length} of {trades.length} trades
+            <button 
+              onClick={() => {
+                setFilterWinLoss('all')
+                setFilterResult('all')
+                setSearchTerm('')
+              }}
+              className="clear-filters-button"
+            >
+              Clear Filters
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Desktop Table View */}
@@ -245,7 +509,7 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
               return (
                 <tr
                   key={trade.id || idx}
-                  className={`${trade.pnl >= 0 ? 'win-row' : 'loss-row'} clickable-row`}
+                  className={`${trade.pnl >= 0 ? 'win-row' : 'loss-row'} clickable-row ${openDropdownId === trade.id || hoveredDropdownId === trade.id ? 'dropdown-open' : ''}`}
                   onClick={(e) => handleRowClick(trade, e)}
                 >
                   <td>
@@ -260,6 +524,22 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
                           )}
                           {tlData.volume && (
                             <span className="volume-text">{tlData.volume}</span>
+                          )}
+                        </div>
+                      )}
+                      {(tlData?.orderId || tlData?.positionId) && (
+                        <div className="tl-table-ids">
+                          {tlData.orderId && (
+                            <span className="tl-table-id-item">
+                              <span className="tl-table-id-label">Order</span>
+                              <span className="tl-table-id-value">{tlData.orderId}</span>
+                            </span>
+                          )}
+                          {tlData.positionId && (
+                            <span className="tl-table-id-item">
+                              <span className="tl-table-id-label">Pos</span>
+                              <span className="tl-table-id-value">{tlData.positionId}</span>
+                            </span>
                           )}
                         </div>
                       )}
@@ -295,6 +575,8 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
                         if (el) dropdownRefs.current[trade.id] = el
                         else delete dropdownRefs.current[trade.id]
                       }}
+                      onMouseEnter={() => setHoveredDropdownId(trade.id)}
+                      onMouseLeave={() => setHoveredDropdownId(null)}
                     >
                       <button
                         onClick={(e) => toggleDropdown(trade.id, e)}
@@ -408,6 +690,28 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
                 </div>
               )}
 
+              {/* Order ID / Position ID on the card */}
+              {(tlData?.orderId || tlData?.positionId) && (
+                <div className="tl-card-ids">
+                  {tlData.orderId && (
+                    <div className="tl-card-id-item">
+                      <span className="tl-card-id-label">Order ID</span>
+                      <span className="tl-card-id-value">
+                        {tlData.orderId}
+                      </span>
+                    </div>
+                  )}
+                  {tlData.positionId && (
+                    <div className="tl-card-id-item">
+                      <span className="tl-card-id-label">Position ID</span>
+                      <span className="tl-card-id-value">
+                        {tlData.positionId}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="trade-card-body-mobile">
                 <div className="trade-metrics-mobile">
                   <div className="metric-item-mobile">
@@ -458,21 +762,21 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
 
       <div className="history-summary">
         <div className="summary-card">
-          <span className="summary-label">Total Trades</span>
-          <span className="summary-value">{trades.length}</span>
+          <span className="summary-label">Showing</span>
+          <span className="summary-value">{sortedTrades.length}</span>
         </div>
         <div className="summary-card">
           <span className="summary-label">Wins</span>
-          <span className="summary-value positive">{trades.filter(t => t.pnl > 0).length}</span>
+          <span className="summary-value positive">{sortedTrades.filter(t => t.pnl > 0).length}</span>
         </div>
         <div className="summary-card">
           <span className="summary-label">Losses</span>
-          <span className="summary-value negative">{trades.filter(t => t.pnl < 0).length}</span>
+          <span className="summary-value negative">{sortedTrades.filter(t => t.pnl < 0).length}</span>
         </div>
         <div className="summary-card">
-          <span className="summary-label">Total P&L</span>
-          <span className={`summary-value ${tradesWithCumulative[tradesWithCumulative.length - 1]?.cumulativePnL >= 0 ? 'positive' : 'negative'}`}>
-            {formatCurrency(tradesWithCumulative[tradesWithCumulative.length - 1]?.cumulativePnL || 0)}
+          <span className="summary-label">Filtered P&L</span>
+          <span className={`summary-value ${sortedTrades.reduce((sum, t) => sum + t.pnl, 0) >= 0 ? 'positive' : 'negative'}`}>
+            {formatCurrency(sortedTrades.reduce((sum, t) => sum + t.pnl, 0))}
           </span>
         </div>
       </div>

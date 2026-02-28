@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import './Sidebar.css'
 
-function Sidebar({ activeTab, onTabChange, isMobileOpen, onMobileClose, isMobileExpanded, onMobileToggle }) {
+function Sidebar({ activeTab, onTabChange, isMobileOpen, onMobileClose, isMobileExpanded, onMobileToggle, user, onLogout }) {
+  const navigate = useNavigate()
+  const location = useLocation()
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
     { id: 'history', label: 'History', icon: 'history' },
     { id: 'calendar', label: 'Calendar', icon: 'calendar_month' },
     { id: 'equity', label: 'Equity Curve', icon: 'show_chart' },
+    { id: 'goals', label: 'Goals', icon: 'flag' },
     { id: 'settings', label: 'Settings', icon: 'settings' }
   ]
 
@@ -114,15 +118,25 @@ function Sidebar({ activeTab, onTabChange, isMobileOpen, onMobileClose, isMobile
     e.stopPropagation()
     const isMobile = window.innerWidth <= 640
     
-    if (isMobile && !isMobileExpanded) {
-      onMobileToggle()
-      setTimeout(() => onTabChange(id), 150)
-    } else {
-      onTabChange(id)
-      // Auto-close on mobile after selection for better UX
-      if (isMobile && isMobileExpanded) {
-        setTimeout(() => onMobileToggle(), 200)
-      }
+    // Map tab IDs to routes
+    const routeMap = {
+      'dashboard': '/',
+      'history': '/history',
+      'calendar': '/calendar',
+      'equity': '/equity',
+      'goals': '/goals',
+      'settings': '/settings'
+    }
+    
+    const route = routeMap[id] || '/'
+    
+    // Navigate immediately
+    navigate(route)
+    onTabChange(id)
+    
+    // Auto-close on mobile after selection if sidebar is expanded
+    if (isMobile && isMobileExpanded) {
+      setTimeout(() => onMobileToggle(), 200)
     }
   }
 
@@ -185,6 +199,37 @@ function Sidebar({ activeTab, onTabChange, isMobileOpen, onMobileClose, isMobile
             ))}
           </div>
         </nav>
+
+        {/* User info and logout */}
+        <div className="sidebar-user-section">
+          {user && (
+            <div className="sidebar-user-info">
+              <div className="sidebar-user-avatar">
+                <span className="material-icons">person</span>
+              </div>
+              <div className="sidebar-user-details">
+                <div className="sidebar-user-name">{user.name || user.email}</div>
+                <div className="sidebar-user-email">{user.email}</div>
+              </div>
+            </div>
+          )}
+          {user && onLogout && (
+            <button 
+              className="sidebar-logout"
+              onClick={(e) => {
+                e.stopPropagation()
+                if (window.confirm('Are you sure you want to sign out?')) {
+                  onLogout()
+                }
+              }}
+              aria-label="Sign out"
+              title="Sign out"
+            >
+              <span className="material-icons">logout</span>
+              <span>Sign Out</span>
+            </button>
+          )}
+        </div>
 
         {/* Footer decoration */}
         <div className="sidebar-footer">

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react'
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, parseISO, getDaysInMonth, startOfWeek, endOfWeek } from 'date-fns'
-import { formatCurrency } from '../utils/calculations'
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDaysInMonth, startOfWeek, endOfWeek } from 'date-fns'
+import { formatCurrency, parseDateLocal } from '../utils/calculations'
 import './CalendarView.css'
 
 function CalendarView({ trades, settings, onTradeClick }) {
@@ -17,7 +17,7 @@ function CalendarView({ trades, settings, onTradeClick }) {
   const tradesByDate = useMemo(() => {
     const map = {}
     trades.forEach(trade => {
-      const dateKey = format(parseISO(trade.date), 'yyyy-MM-dd')
+      const dateKey = format(parseDateLocal(trade.date), 'yyyy-MM-dd')
       if (!map[dateKey]) {
         map[dateKey] = []
       }
@@ -28,7 +28,7 @@ function CalendarView({ trades, settings, onTradeClick }) {
 
   const monthStats = useMemo(() => {
     const monthTrades = trades.filter(t => {
-      const tradeDate = parseISO(t.date)
+      const tradeDate = parseDateLocal(t.date)
       return tradeDate.getMonth() === currentMonth.getMonth() &&
              tradeDate.getFullYear() === currentMonth.getFullYear()
     })
@@ -50,7 +50,7 @@ function CalendarView({ trades, settings, onTradeClick }) {
   const allMonthsStats = useMemo(() => {
     const monthMap = {}
     trades.forEach(trade => {
-      const tradeDate = parseISO(trade.date)
+      const tradeDate = parseDateLocal(trade.date)
       const monthKey = format(tradeDate, 'yyyy-MM')
       if (!monthMap[monthKey]) {
         monthMap[monthKey] = { trades: [], totalPnL: 0 }
@@ -145,7 +145,7 @@ function CalendarView({ trades, settings, onTradeClick }) {
         {bestMonth && (
           <div className="best-month-banner">
             <span className="material-icons">emoji_events</span>
-            Best Month: {format(parseISO(bestMonth.month + '-01'), 'MMMM yyyy')} - {formatCurrency(bestMonth.totalPnL)}
+            Best Month: {format(parseDateLocal(bestMonth.month + '-01'), 'MMMM yyyy')} - {formatCurrency(bestMonth.totalPnL)}
           </div>
         )}
       </div>
@@ -208,8 +208,8 @@ function CalendarView({ trades, settings, onTradeClick }) {
                 <div className="trade-metrics">
                   <div className="metric">
                     <span className="metric-label">% Gain/Loss:</span>
-                    <span className={`metric-value ${trade.percentGainLoss >= 0 ? 'positive' : 'negative'}`}>
-                      {trade.percentGainLoss.toFixed(2)}%
+                    <span className={`metric-value ${trade.percentGain >= 0 ? 'positive' : 'negative'}`}>
+                      {trade.percentGain.toFixed(2)}%
                     </span>
                   </div>
                   <div className="metric">

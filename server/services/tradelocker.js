@@ -376,42 +376,238 @@ export async function getClosedPositions(accessToken, accountId, accNum, environ
 }
 
 /**
- * Get all instruments available to the account
- * This is more efficient than fetching instruments one by one
+ * Determine the P&L contract multiplier for an instrument.
+ *
+ * TradeLocker ordersHistory returns raw price-diff × qty but NOT the realized P&L.
+ * The realized P&L = priceDiff × qty × contractSize × fxRate.
+ *
+ * Verified multipliers for HEROFX (confirmed against live API):
+ *   NAS100 / NAS100.PRO  → contractSize=1,   currency=USD  → multiplier = 1
+ *   XAUUSD (Gold)        → contractSize=100, currency=USD  → multiplier = 100
+ *   DE40 / DE40.PRO      → contractSize=100, currency=EUR  → multiplier = 100 × EUR/USD
+ *
+ * @param {string} symbol    - Instrument name (e.g. "DE40.PRO", "XAUUSD", "NAS100")
+ * @param {Object} fxRates   - Live FX rates: { EURUSD, GBPUSD, ... } (default 1.0)
+ * @returns {number} The multiplier to apply to (priceDiff × qty)
+ */
+export function getContractMultiplier(symbol, fxRates = {}, instrumentType = '') {
+  if (!symbol) return 1
+  const s = symbol.toUpperCase().replace(/[.\s_]/g, '') // normalise
+
+  // ── Precious metals (100 oz per standard lot, USD-denominated) ─────────────
+  if (s.startsWith('XAU') || s.startsWith('XAG') ||
+      s.includes('GOLD') || s.includes('SILVER')) {
+    return 100
+  }
+
+  // ── European equity indices (100 EUR per point per lot) ────────────────────
+  const eurIndices = ['DE40', 'GER40', 'DE30', 'GER30', 'DAX',
+                      'FRA40', 'CAC40', 'ESP35', 'EU50', 'STOXX50',
+                      'STOXX', 'AEX', 'SMI', 'IBEX', 'MIB', 'FTSEMIB']
+  if (eurIndices.some(idx => s.includes(idx))) {
+    return 100 * (fxRates.EURUSD || 1)
+  }
+
+  // ── UK equity index (100 GBP per point per lot) ────────────────────────────
+  const gbpIndices = ['UK100', 'FTSE', 'UKX']
+  if (gbpIndices.some(idx => s.includes(idx))) {
+    return 100 * (fxRates.GBPUSD || 1)
+  }
+
+  // ── FOREX pairs (100,000 units per standard lot) ───────────────────────────
+  // Detect: instrument type is FOREX, or symbol looks like a 6-char currency pair
+  const isForex = instrumentType === 'FOREX' ||
+                  (!instrumentType && /^[A-Z]{6}(\.PRO)?$/.test(s))
+  if (isForex) {
+    // Quote currency = last 3 chars of the base symbol (strip .PRO suffix)
+    const base = s.replace('PRO', '')
+    const quoteCcy = base.slice(-3)
+    // Convert P&L from quote currency to USD
+    const quoteCcyToUSD = {
+      'USD': 1,
+      'EUR': fxRates.EURUSD || 1,
+      'GBP': fxRates.GBPUSD || 1,
+      'AUD': fxRates.AUDUSD || 1,
+      'NZD': fxRates.NZDUSD || 1,
+      'CAD': fxRates.CADUSD || (1 / (fxRates.USDCAD || 1)),
+      'CHF': fxRates.CHFUSD || (1 / (fxRates.USDCHF || 1)),
+      'JPY': fxRates.JPYUSD || (1 / (fxRates.USDJPY || 100)),
+      'SGD': fxRates.SGDUSD || (1 / (fxRates.USDSGD || 1.3)),
+    }
+    const convRate = quoteCcyToUSD[quoteCcy] ?? 1
+    return 100000 * convRate
+  }
+
+  // ── All other instruments (US indices NAS100/US30/US500, Crypto…) ──────────
+  // contractSize = 1 (USD per point per lot)
+  return 1
+}
+
+/**
+ * Fetch the live bid/ask quote for an instrument via the INFO route.
+ * The INFO route (not the TRADE route) serves market data for quotes.
+ *
+ * @param {string} accessToken
+ * @param {string|number} tradableInstrumentId
+ * @param {string|number} infoRouteId  - The route whose type === "INFO"
+ * @param {number} accNum
+ * @param {string} environment
+ * @returns {Promise<{bid: number, ask: number} | null>}
+ */
+export async function getLiveQuote(accessToken, tradableInstrumentId, infoRouteId, accNum, environment = 'live') {
+  const baseUrl = TRADELOCKER_BASE_URL[environment] || TRADELOCKER_BASE_URL.live
+  try {
+    const resp = await fetch(
+      `${baseUrl}/trade/quotes?tradableInstrumentId=${tradableInstrumentId}&routeId=${infoRouteId}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'accNum': String(accNum),
+          'Content-Type': 'application/json'
+        }
+      }
+    )
+    if (!resp.ok) return null
+    const data = await resp.json()
+    if (data.s !== 'ok' || !data.d) return null
+    return {
+      bid: parseFloat(data.d.bp || data.d.bid || 0),
+      ask: parseFloat(data.d.ap || data.d.ask || 0)
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Fetch live FX rates needed for P&L conversion (EUR/USD, GBP/USD).
+ * Uses the INFO route of the respective currency pair instruments.
+ *
  * @param {string} accessToken
  * @param {string} accountId
  * @param {number} accNum
- * @param {string} environment - "live" or "demo"
- * @returns {Promise<Map<string, string>>} Map of instrumentId -> symbol
+ * @param {string} environment
+ * @returns {Promise<{EURUSD: number, GBPUSD: number}>}
  */
-export async function getAllInstruments(accessToken, accountId, accNum, environment = 'live') {
+export async function getFXRates(accessToken, accountId, accNum, environment = 'live') {
   const baseUrl = TRADELOCKER_BASE_URL[environment] || TRADELOCKER_BASE_URL.live
-  const commonHeaders = {
-    'Authorization': `Bearer ${accessToken}`,
-    'accNum': String(accNum),
-    'Content-Type': 'application/json'
+  const rates = {
+    EURUSD: 1.0, GBPUSD: 1.0, AUDUSD: 1.0, NZDUSD: 1.0,
+    USDCAD: 1.0, USDCHF: 1.0, USDJPY: 100.0,
+    // Derived convenience aliases
+    CADUSD: 1.0, CHFUSD: 1.0, JPYUSD: 0.01,
+    // Per-instrument spread (used to correct P&L to TL mid-price basis)
+    // Key: symbol.toUpperCase() → live spread (ask - bid)
+    spreads: {}
   }
 
+  try {
+    const resp = await fetch(`${baseUrl}/trade/accounts/${accountId}/instruments`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'accNum': String(accNum),
+        'Content-Type': 'application/json'
+      }
+    })
+    if (!resp.ok) return rates
+
+    const data = await resp.json()
+    const instruments = data.d?.instruments || data.instruments || []
+
+    // Currency pairs to fetch — key is the rate name, names is the symbol to look for
+    const targets = [
+      { key: 'EURUSD',  names: ['EURUSD',  'EUR/USD'] },
+      { key: 'GBPUSD',  names: ['GBPUSD',  'GBP/USD'] },
+      { key: 'AUDUSD',  names: ['AUDUSD',  'AUD/USD'] },
+      { key: 'NZDUSD',  names: ['NZDUSD',  'NZD/USD'] },
+      { key: 'USDCAD',  names: ['USDCAD',  'USD/CAD'] },
+      { key: 'USDCHF',  names: ['USDCHF',  'USD/CHF'] },
+      { key: 'USDJPY',  names: ['USDJPY',  'USD/JPY'] },
+      // Equity + metal instruments — fetch spread so we can apply mid-price correction
+      { key: '_NAS100', names: ['NAS100', 'NAS100.PRO', 'USA100'] },
+      { key: '_XAUUSD', names: ['XAUUSD', 'GOLD', 'XAU/USD'] },
+      { key: '_DE40',   names: ['DE40.PRO', 'DE40', 'GER40'] },
+    ]
+
+    for (const { key, names } of targets) {
+      const inst = instruments.find(i =>
+        names.some(n => (i.name || i.symbol || '').toUpperCase() === n.toUpperCase())
+      )
+      if (!inst) continue
+
+      const infoRoute = (inst.routes || []).find(r => r.type === 'INFO')
+      if (!infoRoute) continue
+
+      const instId = inst.tradableInstrumentId || inst.id
+      const quote = await getLiveQuote(accessToken, instId, infoRoute.id, accNum, environment)
+      if (!quote || quote.bid <= 0) continue
+
+      const mid = (quote.bid + quote.ask) / 2
+      const spread = quote.ask - quote.bid
+
+      if (key.startsWith('_')) {
+        // Store spread for equity/metal instruments
+        const sym = names[0].toUpperCase().replace(/[.\s_]/g, '')
+        rates.spreads[sym] = spread
+        console.log(`✅  Live spread ${names[0]} = ${spread.toFixed(4)} (ask=${quote.ask} bid=${quote.bid})`)
+      } else {
+        rates[key] = mid
+        console.log(`✅  Live FX rate ${key} = ${mid.toFixed(5)}`)
+      }
+    }
+
+    // Derive convenience aliases
+    rates.CADUSD = rates.USDCAD > 0 ? 1 / rates.USDCAD : 1
+    rates.CHFUSD = rates.USDCHF > 0 ? 1 / rates.USDCHF : 1
+    rates.JPYUSD = rates.USDJPY > 0 ? 1 / rates.USDJPY : 0.01
+  } catch (err) {
+    console.warn('getFXRates error (non-fatal):', err.message)
+  }
+
+  return rates
+}
+
+/**
+ * Get all instruments available to the account — returns Map<instId, symbol>
+ * @returns {Promise<Map<string, string>>}
+ */
+export async function getAllInstruments(accessToken, accountId, accNum, environment = 'live') {
+  const full = await getAllInstrumentsFull(accessToken, accountId, accNum, environment)
+  const symbolMap = new Map()
+  for (const [id, info] of full) symbolMap.set(id, info.symbol)
+  return symbolMap
+}
+
+/**
+ * Get all instruments with full metadata (symbol + type) needed for P&L calculation.
+ * @returns {Promise<Map<string, {symbol: string, type: string}>>}
+ */
+export async function getAllInstrumentsFull(accessToken, accountId, accNum, environment = 'live') {
+  const baseUrl = TRADELOCKER_BASE_URL[environment] || TRADELOCKER_BASE_URL.live
   const instrumentMap = new Map()
 
   try {
-    // Use the correct endpoint: /trade/accounts/{accountId}/instruments
     const response = await fetch(`${baseUrl}/trade/accounts/${accountId}/instruments`, {
       method: 'GET',
-      headers: commonHeaders
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'accNum': String(accNum),
+        'Content-Type': 'application/json'
+      }
     })
 
     if (response.ok) {
       const data = await response.json()
       const instruments = data.d?.instruments || data.d || data.instruments || []
-      
+
       if (Array.isArray(instruments)) {
         for (const instrument of instruments) {
           const instId = String(instrument.tradableInstrumentId || instrument.id || instrument.instrumentId || '')
           const symbol = instrument.symbol || instrument.name || instrument.instrumentName || null
-          
+          const type   = instrument.type || instrument.instrumentType || ''
+
           if (instId && symbol) {
-            instrumentMap.set(instId, symbol)
+            instrumentMap.set(instId, { symbol, type })
           }
         }
       }
@@ -704,12 +900,22 @@ export function normalizeTradeLockerTrade(tradeData) {
  *
  * All orders for the same position share the same positionId at index [16].
  *
- * @param {Array} orders - Raw array from ordersHistory
- * @returns {Array} Array of composite closed-position objects, each with named fields
- *                  compatible with normalizeTradeLockerTrade (object-format branch)
- *                  and transformTradeLockerTrade.
+ * ⚠️  TradeLocker ordersHistory does NOT include realized P&L.
+ *     P&L is calculated here using:
+ *       grossPnl = priceDiff × qty × contractMultiplier
+ *     where contractMultiplier = getContractMultiplier(symbol, fxRates).
+ *
+ *     Verified multipliers for HEROFX (from live API diagnostics):
+ *       NAS100 / NAS100.PRO  → ×1   (USD, contractSize=1 per lot)
+ *       XAUUSD (Gold)        → ×100 (USD, 100 oz per lot)
+ *       DE40 / DE40.PRO      → ×100 × EUR/USD rate (EUR-denominated, 100 EUR/point/lot)
+ *
+ * @param {Array}                orders        - Raw array from ordersHistory
+ * @param {Map<string, string>}  instrumentMap - Optional: instId → symbol name
+ * @param {Object}               fxRates       - Optional: { EURUSD, GBPUSD } live rates
+ * @returns {Array} Array of composite closed-position objects
  */
-export function groupPositionOrders(orders) {
+export function groupPositionOrders(orders, instrumentMap = new Map(), fxRates = {}, instrumentFullMap = new Map()) {
   const groups = new Map()
 
   for (const order of orders) {
@@ -762,6 +968,8 @@ export function groupPositionOrders(orders) {
     const entryTimeMs = get(openOrder, 13)                              // createdDate ms
     const exitTimeMs  = get(closeOrder, 13)                             // createdDate ms of close fill
     const instId      = String(get(openOrder, 1) || '')                 // tradableInstrumentId
+    const symbol      = instrumentMap.get(instId) || ''                 // e.g. "DE40.PRO"
+    const instType    = instrumentFullMap.get(instId)?.type || ''       // e.g. "FOREX", "EQUITY_CFD"
 
     // Primary source: [17] stopLoss and [19] takeProfit on the opening order
     let stopLoss   = parseFloat(get(openOrder, 17) || 0) || null   // [17] = stopLoss
@@ -796,12 +1004,22 @@ export function groupPositionOrders(orders) {
       if (bracketType === 'limit' && takeProfit === null) takeProfit = bracketPrice
     }
 
-    // Calculate gross P&L from price difference (commission/swap not available in API)
+    // Calculate gross P&L.
+    // ordersHistory has no realized P&L field — we derive it from price difference.
+    // The correct formula is: priceDiff × qty × contractMultiplier
+    // where the multiplier accounts for contractSize and currency conversion.
+    // e.g.  NAS100 → ×1   |  XAUUSD → ×100   |  DE40.PRO → ×100 × EUR/USD
     let grossPnl = 0
     if (entryPrice > 0 && exitPrice > 0 && qty > 0) {
-      grossPnl = side === 'sell'
-        ? (entryPrice - exitPrice) * qty
-        : (exitPrice - entryPrice) * qty
+      const priceDiff = side === 'sell'
+        ? (entryPrice - exitPrice)
+        : (exitPrice - entryPrice)
+      const multiplier = getContractMultiplier(symbol, fxRates, instType)
+      grossPnl = priceDiff * qty * multiplier
+      // Log only when a non-trivial multiplier is applied (helps trace P&L issues)
+      if (symbol && multiplier !== 1) {
+        console.log(`  P&L calc: ${symbol} (${instType||'?'}) | diff=${priceDiff.toFixed(4)} × qty=${qty} × mult=${multiplier.toFixed(4)} = $${grossPnl.toFixed(2)}`)
+      }
     }
 
     // The "Order ID" shown in the TradeLocker UI corresponds to the closing order ID
