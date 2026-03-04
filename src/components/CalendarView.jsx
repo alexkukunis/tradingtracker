@@ -3,40 +3,6 @@ import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, startOf
 import { formatCurrency, parseDateLocal, getResultIcon } from '../utils/calculations'
 import './CalendarView.css'
 
-/**
- * Parse pipe-separated TradeLocker notes.
- * e.g. "NAS100 | Sell 0.19 Market | Entry: 24876.12 | Exit: 24869.41 | SL: 24941.98 | TP: 25000.00 | ..."
- */
-function parseTradeLockerNotes(notes) {
-  if (!notes || notes === 'TradeLocker trade') return null
-  const parts = notes.split(' | ').map(p => p.trim())
-  if (parts.length < 2) return null
-
-  const result = {}
-  if (parts[0] && !parts[0].includes(':') && !parts[0].toLowerCase().startsWith('instrument')) {
-    result.instrument = parts[0]
-  } else if (parts[0]?.startsWith('Instrument ')) {
-    result.instrument = parts[0].replace('Instrument ', '').trim()
-  }
-
-  for (const part of parts) {
-    const sideMatch = part.match(/^(Buy|Sell)\s+([\d.]+)\s*(\w*)/)
-    if (sideMatch) {
-      result.side      = sideMatch[1]
-      result.volume    = sideMatch[2]
-      result.orderType = sideMatch[3] || 'Market'
-      continue
-    }
-    if (part.startsWith('Entry:'))    { result.entryPrice = part.replace('Entry:', '').trim();    continue }
-    if (part.startsWith('Exit:'))     { result.exitPrice  = part.replace('Exit:', '').trim();     continue }
-    if (part.startsWith('SL:'))       { result.sl         = part.replace('SL:', '').trim();       continue }
-    if (part.startsWith('TP:'))       { result.tp         = part.replace('TP:', '').trim();       continue }
-    if (part.startsWith('Order:'))    { result.orderId    = part.replace('Order:', '').trim();    continue }
-    if (part.startsWith('Position:')) { result.positionId = part.replace('Position:', '').trim(); continue }
-  }
-  return Object.keys(result).length > 1 ? result : null
-}
-
 function CalendarView({ trades, settings, onTradeClick }) {
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState(null)
@@ -234,12 +200,11 @@ function CalendarView({ trades, settings, onTradeClick }) {
           {selectedDayTrades.length > 0 ? (
             <div className="day-trades-list">
               {selectedDayTrades.map((trade, idx) => {
-                const tlData  = trade.tradelockerTradeId ? parseTradeLockerNotes(trade.notes) : null
                 const rrHit   = trade.rrAchieved >= (settings?.riskReward || 1)
-                const hasSL   = trade.stopLoss != null || (tlData?.sl && tlData.sl !== 'N/A')
-                const hasTP   = trade.takeProfit != null || (tlData?.tp && tlData.tp !== 'N/A')
-                const slValue = trade.stopLoss != null ? trade.stopLoss : tlData?.sl
-                const tpValue = trade.takeProfit != null ? trade.takeProfit : tlData?.tp
+                const hasSL   = trade.stopLoss != null
+                const hasTP   = trade.takeProfit != null
+                const slValue = trade.stopLoss
+                const tpValue = trade.takeProfit
                 const isWin   = trade.pnl >= 0
 
                 return (
@@ -248,53 +213,26 @@ function CalendarView({ trades, settings, onTradeClick }) {
                     {/* ── Row 1: meta (badges) + PnL block ── */}
                     <div className="dtc__top">
                       <div className="dtc__meta">
-                        {tlData?.instrument && (
-                          <span className="badge badge--instrument">{tlData.instrument}</span>
-                        )}
-                        {tlData?.side && (
-                          <span className={`badge badge--side badge--${tlData.side.toLowerCase()}`}>
-                            {tlData.side}
-                          </span>
-                        )}
-                        {tlData?.orderType && (
-                          <span className="badge badge--muted">{tlData.orderType}</span>
-                        )}
-                        {tlData?.volume && (
-                          <span className="badge badge--muted">{tlData.volume} lots</span>
-                        )}
-                        {!tlData && (
-                          <span className={`badge badge--result ${isWin ? 'badge--win' : 'badge--loss'}`}>
-                            <span className="material-icons">{getResultIcon(trade.targetHit, trade.pnl)}</span>
-                            {trade.result}
-                          </span>
-                        )}
+                        <span className={`badge badge--result ${isWin ? 'badge--win' : 'badge--loss'}`}>
+                          <span className="material-icons">{getResultIcon(trade.targetHit, trade.pnl)}</span>
+                          {trade.result}
+                        </span>
                       </div>
 
                       <div className="dtc__pnl-block">
                         <span className={`dtc__pnl ${isWin ? 'positive' : 'negative'}`}>
                           {isWin ? '+' : ''}{formatCurrency(trade.pnl)}
                         </span>
-                        {tlData && (
-                          <span className={`badge badge--result ${isWin ? 'badge--win' : 'badge--loss'}${trade.targetHit ? ' badge--crushed' : ''}`}>
-                            <span className="material-icons">{getResultIcon(trade.targetHit, trade.pnl)}</span>
-                            {trade.result}
-                          </span>
-                        )}
+                        <span className={`badge badge--result ${isWin ? 'badge--win' : 'badge--loss'}${trade.targetHit ? ' badge--crushed' : ''}`}>
+                          <span className="material-icons">{getResultIcon(trade.targetHit, trade.pnl)}</span>
+                          {trade.result}
+                        </span>
                       </div>
                     </div>
 
-                    {/* ── Row 2: prices (TL only) ── */}
-                    {tlData?.entryPrice && (
+                    {/* ── Row 2: SL / TP (from manual fields) ── */}
+                    {hasSL || hasTP ? (
                       <div className="dtc__prices">
-                        <div className="dtc__price-pair">
-                          <span className="dtc__price-label">Entry</span>
-                          <span className="dtc__price-val">{tlData.entryPrice}</span>
-                        </div>
-                        <span className="dtc__price-arrow">→</span>
-                        <div className="dtc__price-pair">
-                          <span className="dtc__price-label">Exit</span>
-                          <span className="dtc__price-val">{tlData.exitPrice || '—'}</span>
-                        </div>
                         {hasSL && (
                           <>
                             <span className="dtc__price-sep">·</span>
@@ -333,8 +271,8 @@ function CalendarView({ trades, settings, onTradeClick }) {
                       </div>
                     </div>
 
-                    {/* ── Notes (manual trades only) ── */}
-                    {trade.notes && !tlData && (
+                    {/* ── Notes ── */}
+                    {trade.notes && (
                       <div className="dtc__notes">
                         <span className="dtc__notes-label">Notes</span>
                         <p>{trade.notes}</p>

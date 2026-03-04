@@ -4,46 +4,6 @@ import { formatCurrency, calculateCumulativePnL, getResultIcon, calculateTradeMe
 import Modal from './Modal'
 import './TradeHistory.css'
 
-/**
- * Parse the structured pipe-separated notes from TradeLocker synced trades.
- * Format: "NAS100 | Sell 0.19 Market | Entry: 24876.12 | Exit: 24869.41 | SL: 24941.98 | TP: 25000.00 | Fee: $-0.19 | Swap: $0.00 | Order: 123 | Position: 456"
- */
-function parseTradeLockerNotes(notes) {
-  if (!notes || notes === 'TradeLocker trade') return null
-
-  const parts = notes.split(' | ').map(p => p.trim())
-  if (parts.length < 2) return null
-
-  const result = {}
-
-  // First part is instrument symbol (e.g. "NAS100") if it doesn't contain ":"
-  if (parts[0] && !parts[0].includes(':') && !parts[0].toLowerCase().startsWith('instrument')) {
-    result.instrument = parts[0]
-  } else if (parts[0] && parts[0].startsWith('Instrument ')) {
-    result.instrument = parts[0].replace('Instrument ', '').trim()
-  }
-
-  for (const part of parts) {
-    const sideMatch = part.match(/^(Buy|Sell)\s+([\d.]+)\s*(\w*)/)
-    if (sideMatch) {
-      result.side = sideMatch[1]
-      result.volume = sideMatch[2]
-      result.orderType = sideMatch[3] || 'Market'
-      continue
-    }
-    if (part.startsWith('Entry:'))    { result.entryPrice = part.replace('Entry:', '').trim(); continue }
-    if (part.startsWith('Exit:'))     { result.exitPrice  = part.replace('Exit:', '').trim();  continue }
-    if (part.startsWith('SL:'))       { result.sl         = part.replace('SL:', '').trim();    continue }
-    if (part.startsWith('TP:'))       { result.tp         = part.replace('TP:', '').trim();    continue }
-    if (part.startsWith('Fee:'))      { result.fee        = part.replace('Fee:', '').trim();   continue }
-    if (part.startsWith('Swap:'))     { result.swap       = part.replace('Swap:', '').trim();  continue }
-    if (part.startsWith('Order:'))    { result.orderId    = part.replace('Order:', '').trim(); continue }
-    if (part.startsWith('Position:')) { result.positionId = part.replace('Position:', '').trim(); continue }
-  }
-
-  return Object.keys(result).length > 1 ? result : null
-}
-
 function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
   const [editingTrade, setEditingTrade] = useState(null)
   const [viewingTrade, setViewingTrade] = useState(null)
@@ -116,12 +76,9 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
     // Apply search filter (search in notes and instrument)
     if (searchTerm) {
       const searchLower = searchTerm.toLowerCase()
-      filtered = filtered.filter(t => {
-        const notesMatch = (t.notes || '').toLowerCase().includes(searchLower)
-        const tlData = t.tradelockerTradeId ? parseTradeLockerNotes(t.notes) : null
-        const instrumentMatch = tlData?.instrument?.toLowerCase().includes(searchLower)
-        return notesMatch || instrumentMatch
-      })
+      filtered = filtered.filter(t =>
+        (t.notes || '').toLowerCase().includes(searchLower)
+      )
     }
     
     // Sort by date
@@ -505,8 +462,6 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
           </thead>
           <tbody>
             {tradesWithCumulative.map((trade, idx) => {
-              const tlData = trade.tradelockerTradeId ? parseTradeLockerNotes(trade.notes) : null
-              return (
                 <tr
                   key={trade.id || idx}
                   className={`${trade.pnl >= 0 ? 'win-row' : 'loss-row'} clickable-row ${openDropdownId === trade.id || hoveredDropdownId === trade.id ? 'dropdown-open' : ''}`}
@@ -516,33 +471,6 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
                     <div className="date-cell">
                       <div className="date-primary">{format(parseDateLocal(trade.date), 'MMM d, yyyy')}</div>
                       <div className="date-secondary">{trade.day}</div>
-                      {tlData?.instrument && (
-                        <div className="instrument-row">
-                          <span className="instrument-badge">{tlData.instrument}</span>
-                          {tlData.side && (
-                            <span className={`side-badge ${tlData.side.toLowerCase()}`}>{tlData.side}</span>
-                          )}
-                          {tlData.volume && (
-                            <span className="volume-text">{tlData.volume}</span>
-                          )}
-                        </div>
-                      )}
-                      {(tlData?.orderId || tlData?.positionId) && (
-                        <div className="tl-table-ids">
-                          {tlData.orderId && (
-                            <span className="tl-table-id-item">
-                              <span className="tl-table-id-label">Order</span>
-                              <span className="tl-table-id-value">{tlData.orderId}</span>
-                            </span>
-                          )}
-                          {tlData.positionId && (
-                            <span className="tl-table-id-item">
-                              <span className="tl-table-id-label">Pos</span>
-                              <span className="tl-table-id-value">{tlData.positionId}</span>
-                            </span>
-                          )}
-                        </div>
-                      )}
                     </div>
                   </td>
                   <td className={trade.pnl >= 0 ? 'positive' : 'negative'}>
@@ -623,8 +551,6 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
       {/* Mobile Card View */}
       <div className="mobile-view">
         {tradesWithCumulative.map((trade, idx) => {
-          const tlData = trade.tradelockerTradeId ? parseTradeLockerNotes(trade.notes) : null
-          return (
             <div
               key={trade.id || idx}
               className={`trade-card-mobile ${trade.pnl >= 0 ? 'win' : 'loss'}`}
@@ -636,20 +562,6 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
                     <span className="material-icons">calendar_today</span>
                     {format(parseDateLocal(trade.date), 'MMM d, yyyy')} · {trade.day}
                   </div>
-                  {tlData?.instrument ? (
-                    <div className="tl-card-instrument">
-                      <span className="instrument-badge">{tlData.instrument}</span>
-                      {tlData.side && (
-                        <span className={`side-badge ${tlData.side.toLowerCase()}`}>{tlData.side}</span>
-                      )}
-                      {tlData.orderType && (
-                        <span className="order-type-text">{tlData.orderType}</span>
-                      )}
-                      {tlData.volume && (
-                        <span className="volume-text">{tlData.volume} lots</span>
-                      )}
-                    </div>
-                  ) : null}
                   <div className={`trade-pnl-mobile ${trade.pnl >= 0 ? 'positive' : 'negative'}`}>
                     {trade.pnl >= 0 ? '+' : ''}{formatCurrency(trade.pnl)}
                   </div>
@@ -660,53 +572,18 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
                 </span>
               </div>
 
-              {tlData?.entryPrice && (
+              {(trade.stopLoss != null || trade.takeProfit != null) && (
                 <div className="tl-card-prices">
-                  <div className="tl-price-item">
-                    <span className="tl-price-label">Entry</span>
-                    <span className="tl-price-value">{tlData.entryPrice}</span>
-                  </div>
-                  <span className="tl-price-arrow">→</span>
-                  <div className="tl-price-item">
-                    <span className="tl-price-label">Exit</span>
-                    <span className="tl-price-value">{tlData.exitPrice || '—'}</span>
-                  </div>
-                  {(trade.stopLoss != null || (tlData.sl && tlData.sl !== 'N/A')) && (
+                  {trade.stopLoss != null && (
                     <div className="tl-price-item">
                       <span className="tl-price-label">SL</span>
-                      <span className="tl-price-value sl">
-                        {trade.stopLoss != null ? trade.stopLoss : tlData.sl}
-                      </span>
+                      <span className="tl-price-value sl">{trade.stopLoss}</span>
                     </div>
                   )}
-                  {(trade.takeProfit != null || (tlData.tp && tlData.tp !== 'N/A')) && (
+                  {trade.takeProfit != null && (
                     <div className="tl-price-item">
                       <span className="tl-price-label">TP</span>
-                      <span className="tl-price-value tp">
-                        {trade.takeProfit != null ? trade.takeProfit : tlData.tp}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Order ID / Position ID on the card */}
-              {(tlData?.orderId || tlData?.positionId) && (
-                <div className="tl-card-ids">
-                  {tlData.orderId && (
-                    <div className="tl-card-id-item">
-                      <span className="tl-card-id-label">Order ID</span>
-                      <span className="tl-card-id-value">
-                        {tlData.orderId}
-                      </span>
-                    </div>
-                  )}
-                  {tlData.positionId && (
-                    <div className="tl-card-id-item">
-                      <span className="tl-card-id-label">Position ID</span>
-                      <span className="tl-card-id-value">
-                        {tlData.positionId}
-                      </span>
+                      <span className="tl-price-value tp">{trade.takeProfit}</span>
                     </div>
                   )}
                 </div>
@@ -730,12 +607,6 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
                       {trade.rrAchieved.toFixed(2)}x
                     </span>
                   </div>
-                  {tlData?.fee && (
-                    <div className="metric-item-mobile">
-                      <span className="metric-label-mobile">Fee</span>
-                      <span className="metric-value-mobile negative">{tlData.fee}</span>
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -788,9 +659,7 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
         title={viewingTrade ? `Trade Details — ${format(parseDateLocal(viewingTrade.date), 'MMM d, yyyy')}` : 'Trade Details'}
         size="medium"
       >
-        {viewingTrade && (() => {
-          const tlData = viewingTrade.tradelockerTradeId ? parseTradeLockerNotes(viewingTrade.notes) : null
-          return (
+        {viewingTrade && (
             <div className="trade-details-modal">
               <div className="trade-details-header">
                 <div className={`trade-result-large ${viewingTrade.pnl >= 0 ? 'positive' : 'negative'}`}>
@@ -801,106 +670,9 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
                       {viewingTrade.pnl >= 0 ? '+' : ''}{formatCurrency(viewingTrade.pnl)}
                     </div>
                   </div>
-                  {tlData?.instrument && (
-                    <div className="modal-instrument-block">
-                      <span className="instrument-badge lg">{tlData.instrument}</span>
-                      {tlData.side && (
-                        <span className={`side-badge lg ${tlData.side.toLowerCase()}`}>{tlData.side}</span>
-                      )}
-                      {tlData.orderType && (
-                        <span className="order-type-text">{tlData.orderType}</span>
-                      )}
-                      {tlData.volume && (
-                        <span className="volume-text">{tlData.volume} lots</span>
-                      )}
-                    </div>
-                  )}
                 </div>
               </div>
 
-              {/* TradeLocker Execution Details */}
-              {tlData && (
-                <div className="tl-details-section">
-                  <h4 className="tl-details-title">
-                    <span className="material-icons">candlestick_chart</span>
-                    Execution Details
-                  </h4>
-                  <div className="tl-details-grid">
-                    {tlData.entryPrice && (
-                      <div className="tl-detail-item">
-                        <span className="tl-detail-label">Entry Price</span>
-                        <span className="tl-detail-value">{tlData.entryPrice}</span>
-                      </div>
-                    )}
-                    {tlData.exitPrice && (
-                      <div className="tl-detail-item">
-                        <span className="tl-detail-label">Exit Price</span>
-                        <span className="tl-detail-value">{tlData.exitPrice}</span>
-                      </div>
-                    )}
-                    {/* Stop Loss — only show when a value is set */}
-                    {(viewingTrade.stopLoss != null || (tlData.sl && tlData.sl !== 'N/A')) && (
-                      <div className="tl-detail-item">
-                        <span className="tl-detail-label">Stop Loss</span>
-                        <span className="tl-detail-value sl">
-                          {viewingTrade.stopLoss != null ? viewingTrade.stopLoss : tlData.sl}
-                        </span>
-                      </div>
-                    )}
-                    {/* Take Profit — only show when a value is set */}
-                    {(viewingTrade.takeProfit != null || (tlData.tp && tlData.tp !== 'N/A')) && (
-                      <div className="tl-detail-item">
-                        <span className="tl-detail-label">Take Profit</span>
-                        <span className="tl-detail-value tp">
-                          {viewingTrade.takeProfit != null ? viewingTrade.takeProfit : tlData.tp}
-                        </span>
-                      </div>
-                    )}
-                    {tlData.volume && (
-                      <div className="tl-detail-item">
-                        <span className="tl-detail-label">Amount</span>
-                        <span className="tl-detail-value">{tlData.volume} lots</span>
-                      </div>
-                    )}
-                    {tlData.orderType && (
-                      <div className="tl-detail-item">
-                        <span className="tl-detail-label">Order Type</span>
-                        <span className="tl-detail-value">{tlData.orderType}</span>
-                      </div>
-                    )}
-                    <div className="tl-detail-item">
-                      <span className="tl-detail-label">Fee</span>
-                      <span className={`tl-detail-value ${tlData.fee && tlData.fee !== 'N/A' && tlData.fee.startsWith('-') ? 'negative' : ''}`}>
-                        {tlData.fee || 'N/A'}
-                      </span>
-                    </div>
-                    <div className="tl-detail-item">
-                      <span className="tl-detail-label">Swap</span>
-                      <span className="tl-detail-value">
-                        {tlData.swap || 'N/A'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Order / Position IDs */}
-                  {(tlData.orderId || tlData.positionId) && (
-                    <div className="tl-ids-section">
-                      {tlData.orderId && (
-                        <div className="tl-id-item">
-                          <span className="tl-id-label">Order ID</span>
-                          <span className="tl-id-value">{tlData.orderId}</span>
-                        </div>
-                      )}
-                      {tlData.positionId && (
-                        <div className="tl-id-item">
-                          <span className="tl-id-label">Position ID</span>
-                          <span className="tl-id-value">{tlData.positionId}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
 
               {/* Standard Metrics Grid */}
               <div className="trade-details-grid">
@@ -954,8 +726,8 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
                 </div>
               </div>
 
-              {/* Notes — only show for manual trades (TL trades already shown above) */}
-              {viewingTrade.notes && !tlData && (
+              {/* Notes */}
+              {viewingTrade.notes && (
                 <div className="trade-notes-section">
                   <span className="notes-section-label">Notes</span>
                   <div className="notes-content">{viewingTrade.notes}</div>

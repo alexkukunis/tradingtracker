@@ -4,7 +4,6 @@ import { dirname, join } from 'path';
 import authRouter from './server/api/auth.js';
 import tradesRouter from './server/api/trades.js';
 import settingsRouter from './server/api/settings.js';
-import tradelockerRouter from './server/api/tradelocker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -19,7 +18,6 @@ app.use(express.json());
 app.use('/api/auth', authRouter);
 app.use('/api/trades', tradesRouter);
 app.use('/api/settings', settingsRouter);
-app.use('/api/tradelocker', tradelockerRouter);
 
 // Serve static files from the dist directory
 app.use(express.static(join(__dirname, 'dist')));

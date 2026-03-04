@@ -142,34 +142,5 @@ export const settingsAPI = {
   }
 }
 
-// TradeLocker API
-export const tradelockerAPI = {
-  connect: async (email, password, server, environment = 'live', accountId = null) => {
-    return apiRequest('/api/tradelocker/connect', {
-      method: 'POST',
-      body: JSON.stringify({ email, password, server, environment, accountId })
-    })
-  },
-
-  getStatus: async () => {
-    return apiRequest('/api/tradelocker/status')
-  },
-
-  disconnect: async () => {
-    return apiRequest('/api/tradelocker/disconnect', {
-      method: 'POST'
-    })
-  },
-
-  // mode: 'initial' → fetch full history, keep last 100 trades (first-time setup)
-  //       'refresh' → incremental: only trades newer than last sync (default)
-  sync: async (mode = 'refresh') => {
-    return apiRequest('/api/tradelocker/sync', {
-      method: 'POST',
-      body: JSON.stringify({ mode })
-    })
-  }
-}
-
 // Export token management functions
 export { getToken, setToken, removeToken }
