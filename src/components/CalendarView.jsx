@@ -252,7 +252,7 @@ function CalendarView({ trades, settings, onTradeClick }) {
                           </>
                         )}
                       </div>
-                    )}
+                    ) : null}
 
                     {/* ── Row 3: stats footer ── */}
                     <div className="dtc__stats">

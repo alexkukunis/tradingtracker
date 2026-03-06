@@ -14,8 +14,10 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
     notes: ''
   })
   const [tradeEntries, setTradeEntries] = useState([
-    { pnl: '', notes: '' }
+    { pnl: '', notes: '', instrument: '', stopLoss: '', takeProfit: '' }
   ])
+  const [showBulkPaste, setShowBulkPaste] = useState(false)
+  const [bulkPasteText, setBulkPasteText] = useState('')
 
   const openModal = useCallback((trade = null) => {
     if (trade) {
@@ -28,7 +30,13 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
         pnl: trade.pnl.toString(),
         notes: trade.notes || ''
       })
-      setTradeEntries([{ pnl: trade.pnl.toString(), notes: trade.notes || '' }])
+      setTradeEntries([{ 
+        pnl: trade.pnl.toString(), 
+        notes: trade.notes || '',
+        instrument: trade.instrument || '',
+        stopLoss: trade.stopLoss ? trade.stopLoss.toString() : '',
+        takeProfit: trade.takeProfit ? trade.takeProfit.toString() : ''
+      }])
     } else {
       setEditingTrade(null)
       setFormData({
@@ -36,7 +44,7 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
         pnl: '',
         notes: ''
       })
-      setTradeEntries([{ pnl: '', notes: '' }])
+      setTradeEntries([{ pnl: '', notes: '', instrument: '', stopLoss: '', takeProfit: '' }])
     }
     setIsModalOpen(true)
   }, [])
@@ -49,7 +57,9 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
       pnl: '',
       notes: ''
     })
-    setTradeEntries([{ pnl: '', notes: '' }])
+    setTradeEntries([{ pnl: '', notes: '', instrument: '', stopLoss: '', takeProfit: '' }])
+    setShowBulkPaste(false)
+    setBulkPasteText('')
   }
 
   // Keyboard shortcut handler
@@ -158,7 +168,10 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
         openBalance: Math.round(openBalance * 100) / 100,
         ...metricsWithoutCumulative,
         notes: entry.notes || '',
-        result: getResultMessage(metrics.targetHit, pnl)
+        result: getResultMessage(metrics.targetHit, pnl),
+        instrument: entry.instrument || null,
+        stopLoss: entry.stopLoss ? parseFloat(entry.stopLoss) : null,
+        takeProfit: entry.takeProfit ? parseFloat(entry.takeProfit) : null
       }
 
       onUpdateTrade(editingTrade.id, tradeData)
@@ -168,14 +181,34 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
 
     // Handle multiple entries submission
     if (validEntries.length > 1) {
-      // Calculate trades in sequence for the same date
-      let currentBalance = getOpenBalance(formData.date)
-      const tradesToAdd = []
+      // Group trades by date and process chronologically
+      const tradesByDate = {}
+      validEntries.forEach(entry => {
+        const tradeDate = entry.date || formData.date
+        if (!tradesByDate[tradeDate]) {
+          tradesByDate[tradeDate] = []
+        }
+        tradesByDate[tradeDate].push(entry)
+      })
 
-      for (const entry of validEntries) {
-        const pnl = parseFloat(entry.pnl) || 0
-        const tradeId = `${formData.date}-${Date.now()}-${Math.random()}`
-        const openBalance = currentBalance
+      // Sort dates chronologically
+      const sortedDates = Object.keys(tradesByDate).sort((a, b) => {
+        return parseDateLocal(a).getTime() - parseDateLocal(b).getTime()
+      })
+
+      const tradesToAdd = []
+      let currentBalance = settings.startingBalance
+
+      // Process trades date by date
+      for (const date of sortedDates) {
+        const dateTrades = tradesByDate[date]
+        const dateBalance = getOpenBalance(date)
+        currentBalance = dateBalance
+
+        for (const entry of dateTrades) {
+          const pnl = parseFloat(entry.pnl) || 0
+          const tradeId = `${date}-${Date.now()}-${Math.random()}`
+          const openBalance = currentBalance
         
         const metrics = calculateTradeMetrics(
           pnl,
@@ -186,19 +219,23 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
 
         const { cumulativePnL, ...metricsWithoutCumulative } = metrics
 
-        const tradeData = {
-          id: tradeId,
-          date: formData.date,
-          day: getDayName(formData.date),
-          pnl: Math.round(pnl * 100) / 100,
-          openBalance: Math.round(openBalance * 100) / 100,
-          ...metricsWithoutCumulative,
-          notes: entry.notes || '',
-          result: getResultMessage(metrics.targetHit, pnl)
-        }
+          const tradeData = {
+            id: tradeId,
+            date: date,
+            day: getDayName(date),
+            pnl: Math.round(pnl * 100) / 100,
+            openBalance: Math.round(openBalance * 100) / 100,
+            ...metricsWithoutCumulative,
+            notes: entry.notes || '',
+            result: getResultMessage(metrics.targetHit, pnl),
+            instrument: entry.instrument || null,
+            stopLoss: entry.stopLoss ? parseFloat(entry.stopLoss) : null,
+            takeProfit: entry.takeProfit ? parseFloat(entry.takeProfit) : null
+          }
 
-        tradesToAdd.push(tradeData)
-        currentBalance = metrics.closeBalance
+          tradesToAdd.push(tradeData)
+          currentBalance = metrics.closeBalance
+        }
       }
 
       // Add all trades sequentially
@@ -237,7 +274,10 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
       openBalance: Math.round(openBalance * 100) / 100,
       ...metricsWithoutCumulative,
       notes: entry.notes || '',
-      result: getResultMessage(metrics.targetHit, pnl)
+      result: getResultMessage(metrics.targetHit, pnl),
+      instrument: entry.instrument || null,
+      stopLoss: entry.stopLoss ? parseFloat(entry.stopLoss) : null,
+      takeProfit: entry.takeProfit ? parseFloat(entry.takeProfit) : null
     }
 
     onAddTrade(tradeData)
@@ -245,7 +285,193 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
   }
 
   const addTradeEntry = () => {
-    setTradeEntries([...tradeEntries, { pnl: '', notes: '' }])
+    setTradeEntries([...tradeEntries, { pnl: '', notes: '', instrument: '', stopLoss: '', takeProfit: '' }])
+  }
+
+  // Parse bulk paste format
+  const parseBulkPaste = (text) => {
+    const lines = text.trim().split('\n').map(l => l.trim()).filter(line => line.length > 0)
+    const trades = []
+    let i = 0
+
+    while (i < lines.length) {
+      // Look for "Currency flag" pattern or instrument name
+      if (lines[i].includes('Currency flag') || lines[i].match(/^[A-Z0-9]{2,}$/)) {
+        let instrument = ''
+        
+        // Extract instrument name
+        if (lines[i].includes('Currency flag')) {
+          // Instrument is usually on the next line
+          if (i + 1 < lines.length && lines[i + 1].match(/^[A-Z0-9]{2,}$/)) {
+            instrument = lines[i + 1]
+            i += 2 // Skip both "Currency flag" and instrument lines
+          } else {
+            i++
+            continue
+          }
+        } else {
+          // Instrument is on this line
+          instrument = lines[i]
+          i++
+        }
+
+        if (i >= lines.length) break
+
+        // Collect trade data - might span multiple lines
+        const tradeDataLines = []
+        while (i < lines.length && !lines[i].includes('Currency flag') && !lines[i].match(/^[A-Z0-9]{2,}$/)) {
+          tradeDataLines.push(lines[i])
+          i++
+        }
+
+        // Join all trade data lines and parse
+        const tradeDataText = tradeDataLines.join('\t')
+        const parts = tradeDataText.split(/\t+/).filter(p => p.trim())
+        
+        if (parts.length >= 8) {
+          try {
+            // Parse date: format "2026/03/06 18:50:41" or "2026/03/06"
+            let dateStr = parts[0]
+            if (parts[1] && parts[1].match(/^\d{2}:\d{2}:\d{2}$/)) {
+              dateStr = parts[0] + ' ' + parts[1]
+            }
+            
+            const [datePart] = dateStr.split(/\s+/)
+            const [year, month, day] = datePart.split('/')
+            if (!year || !month || !day) {
+              i++
+              continue
+            }
+            const date = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
+
+            // Parse values - typical order after date/time:
+            // Type, Direction, Volume, Entry Price, Stop Loss, Take Profit, Close Date, Close Time, Close Price, Commission, Swap, Profit, Net Profit, IDs
+            
+            let entryPrice = ''
+            let stopLoss = ''
+            let takeProfit = ''
+            let netProfit = ''
+
+            // Find entry price (usually index 4-5, after Volume)
+            for (let j = 3; j < Math.min(6, parts.length); j++) {
+              const val = parts[j]?.replace(/[,$]/g, '').trim()
+              if (val && /^\d+\.?\d*$/.test(val) && parseFloat(val) > 100) { // Entry prices are usually > 100
+                entryPrice = val
+                break
+              }
+            }
+
+            // Find stop loss (usually after entry price, might be on separate line in original)
+            for (let j = 4; j < Math.min(8, parts.length); j++) {
+              const val = parts[j]?.replace(/[,$-]/g, '').trim()
+              if (val && val !== '-' && /^\d+\.?\d*$/.test(val)) {
+                if (!stopLoss) {
+                  stopLoss = val
+                } else if (!takeProfit && val !== stopLoss) {
+                  takeProfit = val
+                  break
+                }
+              }
+            }
+
+            // Find net profit - look for values with $ sign near the end
+            for (let j = parts.length - 1; j >= Math.max(0, parts.length - 6); j--) {
+              const part = parts[j]?.trim()
+              if (part && part.includes('$')) {
+                const match = part.replace(/[,$]/g, '').match(/-?\d+\.?\d*/)
+                if (match && !part.match(/^\d{15,}$/)) { // Not an ID
+                  netProfit = match[0]
+                  break
+                }
+              }
+            }
+
+            // If still no net profit, look for last numeric value before long IDs
+            if (!netProfit) {
+              for (let j = parts.length - 1; j >= Math.max(0, parts.length - 4); j--) {
+                const part = parts[j]?.trim()
+                if (part && part.includes('$')) {
+                  const match = part.replace(/[,$]/g, '').match(/-?\d+\.?\d*/)
+                  if (match) {
+                    netProfit = match[0]
+                    break
+                  }
+                } else if (part && /^-?\d+\.?\d*$/.test(part.replace(/[,$]/g, '')) && !part.match(/^\d{15,}$/)) {
+                  netProfit = part.replace(/[,$]/g, '')
+                  break
+                }
+              }
+            }
+
+            if (netProfit && date) {
+              trades.push({
+                date,
+                pnl: netProfit,
+                instrument: instrument || '',
+                stopLoss: stopLoss || '',
+                takeProfit: takeProfit || '',
+                entryPrice: entryPrice || '',
+                notes: instrument ? `${instrument}${entryPrice ? ` @ ${entryPrice}` : ''}` : ''
+              })
+            }
+          } catch (error) {
+            console.error('Error parsing trade:', error, parts)
+          }
+        }
+      } else {
+        i++
+      }
+    }
+
+    return trades
+  }
+
+  const handleBulkPaste = () => {
+    if (!bulkPasteText.trim()) {
+      toast.error('Please paste trade data')
+      return
+    }
+
+    const parsedTrades = parseBulkPaste(bulkPasteText)
+    
+    if (parsedTrades.length === 0) {
+      toast.error('Could not parse any trades from the pasted data. Please check the format.')
+      return
+    }
+
+    // Group trades by date and convert to tradeEntries format
+    const groupedByDate = {}
+    parsedTrades.forEach(trade => {
+      if (!groupedByDate[trade.date]) {
+        groupedByDate[trade.date] = []
+      }
+      groupedByDate[trade.date].push(trade)
+    })
+
+    // If all trades are on the same date, use that date, otherwise use today
+    const dates = Object.keys(groupedByDate)
+    const selectedDate = dates.length === 1 ? dates[0] : formData.date
+
+    // Convert to tradeEntries format
+    const newEntries = parsedTrades.map(trade => ({
+      pnl: trade.pnl,
+      notes: trade.notes,
+      instrument: trade.instrument,
+      stopLoss: trade.stopLoss,
+      takeProfit: trade.takeProfit,
+      entryPrice: trade.entryPrice,
+      date: trade.date // Include date for multi-date support
+    }))
+
+    // Update form date if all trades are on same date
+    if (dates.length === 1) {
+      setFormData({ ...formData, date: dates[0] })
+    }
+
+    setTradeEntries(newEntries)
+    setBulkPasteText('')
+    setShowBulkPaste(false)
+    toast.success(`Parsed ${parsedTrades.length} trade(s)`)
   }
 
   const removeTradeEntry = (index) => {
@@ -538,7 +764,79 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
             {tradeEntries.length > 1 && (
               <span className="compact-date-hint">{tradeEntries.length} trades</span>
             )}
+            {!editingTrade && (
+              <button
+                type="button"
+                onClick={() => setShowBulkPaste(!showBulkPaste)}
+                className="bulk-paste-toggle"
+                style={{ marginLeft: 'auto', padding: '0.5rem 1rem', fontSize: '0.875rem', background: 'transparent', border: '1px solid #444', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}
+              >
+                <span className="material-icons" style={{ fontSize: '1rem', verticalAlign: 'middle', marginRight: '0.25rem' }}>content_paste</span>
+                {showBulkPaste ? 'Hide' : 'Bulk Paste'}
+              </button>
+            )}
           </div>
+
+          {showBulkPaste && !editingTrade && (
+            <div className="bulk-paste-section" style={{ marginBottom: '1rem', padding: '1rem', background: '#1a1a1a', borderRadius: '8px', border: '1px solid #333' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', color: '#aaa' }}>
+                Paste trade data (from trading platform export):
+              </label>
+              <textarea
+                value={bulkPasteText}
+                onChange={(e) => setBulkPasteText(e.target.value)}
+                placeholder="Paste your trade data here..."
+                style={{
+                  width: '100%',
+                  minHeight: '120px',
+                  padding: '0.75rem',
+                  background: '#0a0a0a',
+                  border: '1px solid #333',
+                  borderRadius: '4px',
+                  color: '#fff',
+                  fontFamily: 'monospace',
+                  fontSize: '0.75rem',
+                  resize: 'vertical'
+                }}
+              />
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+                <button
+                  type="button"
+                  onClick={handleBulkPaste}
+                  style={{
+                    padding: '0.5rem 1rem',
+                    background: '#4a9eff',
+                    border: 'none',
+                    borderRadius: '4px',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: '0.875rem',
+                    fontWeight: '500'
+                  }}
+                >
+                  Parse & Add Trades
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBulkPasteText('')
+                    setShowBulkPaste(false)
+                  }}
+                  style={{
+                    padding: '0.5rem 1rem',
+                    background: 'transparent',
+                    border: '1px solid #444',
+                    borderRadius: '4px',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: '0.875rem'
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="compact-trades-list">
             {tradeEntries.map((entry, index) => {
@@ -583,6 +881,13 @@ function Dashboard({ settings, trades, onAddTrade, onUpdateTrade }) {
                         placeholder="Notes (optional)"
                       />
                     </div>
+                    {(entry.instrument || entry.stopLoss || entry.takeProfit) && (
+                      <div style={{ fontSize: '0.75rem', color: '#aaa', marginTop: '0.25rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        {entry.instrument && <span>📊 {entry.instrument}</span>}
+                        {entry.stopLoss && <span>🛑 SL: {entry.stopLoss}</span>}
+                        {entry.takeProfit && <span>🎯 TP: {entry.takeProfit}</span>}
+                      </div>
+                    )}
                     {entryMetrics && (
                       <div className="compact-preview">
                         <span className={`compact-return ${entryPnl >= 0 ? 'positive' : 'negative'}`}>

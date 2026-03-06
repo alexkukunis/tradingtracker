@@ -78,7 +78,7 @@ router.put('/:id', async (req, res) => {
     }
 
     // Only allow specific updatable fields
-    const allowedFields = ['date', 'day', 'pnl', 'openBalance', 'closeBalance', 'percentGain', 'riskDollar', 'targetDollar', 'rrAchieved', 'targetHit', 'notes', 'result']
+    const allowedFields = ['date', 'day', 'pnl', 'openBalance', 'closeBalance', 'percentGain', 'riskDollar', 'targetDollar', 'rrAchieved', 'targetHit', 'notes', 'result', 'instrument', 'stopLoss', 'takeProfit']
     const updateData = {}
     
     for (const field of allowedFields) {

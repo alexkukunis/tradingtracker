@@ -37,6 +37,7 @@ model Trade {
   targetHit          Boolean  @default(false)
   notes              String?
   result             String?
+  instrument         String?
   stopLoss           Float?
   takeProfit         Float?
   createdAt          DateTime @default(now())

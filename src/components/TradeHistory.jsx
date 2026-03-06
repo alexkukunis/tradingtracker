@@ -462,6 +462,7 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
           </thead>
           <tbody>
             {tradesWithCumulative.map((trade, idx) => {
+              return (
                 <tr
                   key={trade.id || idx}
                   className={`${trade.pnl >= 0 ? 'win-row' : 'loss-row'} clickable-row ${openDropdownId === trade.id || hoveredDropdownId === trade.id ? 'dropdown-open' : ''}`}
@@ -551,6 +552,7 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
       {/* Mobile Card View */}
       <div className="mobile-view">
         {tradesWithCumulative.map((trade, idx) => {
+          return (
             <div
               key={trade.id || idx}
               className={`trade-card-mobile ${trade.pnl >= 0 ? 'win' : 'loss'}`}
@@ -744,8 +746,7 @@ function TradeHistory({ trades, settings, onDelete, onUpdate, onClearAll }) {
                 </button>
               </div>
             </div>
-          )
-        })()}
+          )}
       </Modal>
 
       {/* Edit Trade Modal */}
